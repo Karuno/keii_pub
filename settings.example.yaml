@@ -1,0 +1,34 @@
+# keii_python ローカル設定テンプレート
+# -----------------------------------------------------------------------------
+# 使い方:
+#   1. このファイルを `settings.yaml` という名前でコピー
+#        cp settings.example.yaml settings.yaml
+#   2. 自分の環境に合わせて値を編集
+#   3. `settings.yaml` は git 管理対象外（.gitignore 済）。個人環境依存パスや
+#      認証情報の所在のみを記述する。平文の認証情報そのものは書かない。
+#
+# 設定値の優先順位:
+#   環境変数 (KEII_*) > settings.yaml > 組み込みデフォルト
+#
+# 環境変数:
+#   KEII_JPO_API_DIR              ... jpo_api_credentials_dir を上書き
+#   KEII_INPUTS_FALLBACK_DIR      ... inputs_fallback_dir を上書き
+# -----------------------------------------------------------------------------
+
+# [必須・データ取得時]
+# JPO API 認証情報の格納ディレクトリ。
+# 配下に jpo_api_cred.json (キー: username, password) を置く想定。
+# トークンキャッシュ (jpo_api_token.json) も同ディレクトリに保存される。
+# 生成のみ実行する場合（既取得 inventory の再利用）はコメントアウト可。
+#
+# Windows パス例:  G:\マイドライブ\pg\AI_examiner\jpo_api
+# WSL パス例:      /mnt/g/マイドライブ/pg/AI_examiner/jpo_api
+# Linux/macOS 例:  ~/.config/keii_python/jpo_api
+jpo_api_credentials_dir: ""
+
+# [オプション]
+# `doc_history.json` を探索する補助ディレクトリ。
+# 通常は inventory/doc_history_collected/{appno}.json が見つかれば不要。
+# 担当者配布の案件フォルダ inputs/{CASE_ID}/doc_history/doc_history.json も
+# 並行参照したい場合のみ設定する。値が空または null なら無効。
+inputs_fallback_dir: null

@@ -1,0 +1,312 @@
+# 開発者ルール — 手続の経緯 セクションのテンプレ網羅
+#
+#
+# このファイルはルールベース生成器の参照仕様。
+# placeholder ●●● は実値に置換される動的フィールド。
+# 角括弧 [ ... ] は条件付きで含まれる任意要素。
+
+version: "1.0"
+# --- セクション見出し（審決種別に応じて切替）---
+section_heading:
+  z_kakka:        "第１　手続の経緯"   # 却下Z版
+  z_no_kakka:     "１　手続の経緯"      # 却下無しZ版
+
+# --- 冒頭の「次のとおり審決する」定型句 ---
+opening_decree:
+  通常出願:
+    template: '　特願{appno}号「{title}」拒絶査定不服審判事件〔{publication_kind}{publication_date}、{publication_number}〕について、次のとおり審決する。'
+    publication_kind: "出願公開"
+    publication_number_format: "特開{year}-{number}"
+  ＰＣＴ国際公開のみ:
+    template: '　特願{appno}「{title}」拒絶査定不服審判事件〔{wo_pub_date}国際公開、{wo_number}〕について、次のとおり審決する。'
+    wo_number_format: "ＷＯ{year}／{number}"
+  ＰＣＴ国際公開＋国内公表:
+    template: '　特願{appno}号「{title}」拒絶査定不服審判事件〔{wo_pub_date}国際公開、{wo_number}、{kokunai_pub_date}国内公表、{tokuhyou_number}〕について、次のとおり審決する。'
+
+# --- 手続の経緯：本願性質の冒頭文（11パターン）---
+honyo_intro_patterns:
+
+  通常内国出願:
+    detector:
+      has_priority: false
+      is_pct: false
+      is_divisional: false
+      is_foreign_language: false
+    template: '　本願は、{filing_date}の出願であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [filing_date]
+
+  国内優先権:
+    detector:
+      has_priority: true
+      priority_type: "国内"
+      is_pct: false
+      is_divisional: false
+    template: '　本願は、{filing_date}（優先権主張　{priority_date}）の出願であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [filing_date, priority_date]
+
+  国内優先＋日本語ＰＣＴ:
+    detector:
+      has_priority: true
+      priority_type: "国内"
+      is_pct: true
+      is_japanese_pct: true
+    template: '　本願は、{intl_filing_date}を国際出願日とする日本語特許出願であって（優先権主張　{priority_date}）、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [intl_filing_date, priority_date]
+
+  パリ条約優先権:
+    detector:
+      has_priority: true
+      priority_type: "パリ"
+      is_pct: false
+      is_divisional: false
+      is_foreign_language: false
+    template: '　本願は、{filing_date}（パリ条約による優先権主張{priority_list}）の出願であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [filing_date, priority_list]
+    notes: |
+      priority_list は複数優先のときカンマ区切りで連結:
+        例: 「２０２１年１０月１日、米国、２０２２年４月１日、米国」
+
+  パリ条約の例（台湾）:
+    detector:
+      has_priority: true
+      priority_type: "パリの例"
+    template: '　本願は、{filing_date}（パリ条約の例による優先権主張{priority_list}、台湾）の出願であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [filing_date, priority_list]
+
+  パリ条約優先＋ＰＣＴ:
+    detector:
+      has_priority: true
+      priority_type: "パリ"
+      is_pct: true
+      is_japanese_pct: false
+    template: '　本願は、{intl_filing_date}（パリ条約による優先権主張外国庁受理{priority_list}）を国際出願日とする外国語特許出願であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [intl_filing_date, priority_list, translation_submission_date]
+    extra_lines:
+      - '　{translation_submission_date}　　：翻訳文の提出'
+
+  パリ条約優先＋外国語書面出願:
+    detector:
+      has_priority: true
+      priority_type: "パリ"
+      is_pct: false
+      is_foreign_language: true
+    template: '　本願は、{filing_date}の外国語書面出願（パリ条約による優先権主張、{priority_list}）であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [filing_date, priority_list, translation_submission_date]
+    extra_lines:
+      - '　{translation_submission_date}　　：翻訳文の提出'
+
+  分割_基本形:
+    detector:
+      is_divisional: true
+      generation: 1
+      parent_is_pct: false
+    template: '　本願は、{parent_filing_date}に出願した{parent_appno}の一部を{filing_date}に新たな特許出願としたものであって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [parent_filing_date, parent_appno, filing_date]
+
+  分割_PCT原出願:
+    detector:
+      is_divisional: true
+      generation: 1
+      parent_is_pct: true
+    template: '　本願は、{parent_intl_filing_date}を国際出願日とする{earliest_apptype_phrase}（{parent_appno}）の一部を、{filing_date}に新たな{terminal_phrase}としたものであって（パリ条約による優先権主張　{priority_list}）、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [parent_intl_filing_date, earliest_apptype_phrase, parent_appno, filing_date, terminal_phrase]
+    notes: |
+      earliest_apptype_phrase: divisionalApplicationInformation の divisionalGeneration=0 entry の
+        internationalApplicationNumber プレフィクスから判定
+          JP*  → "日本語特許出願"
+          その他（US/EP/IB/CN/KR 等）→ "外国語特許出願"
+          intl 空 → "特許出願"
+      terminal_phrase: 本願 documentList の翻訳文 (A631/A632) 有無
+          あり → "外国語書面出願"
+          なし → "特許出願"
+      パリ条約優先権がない場合は "（パリ条約による優先権主張　…）" 部分を省略
+
+  分割_PCT原出願_第2世代:
+    detector:
+      is_divisional: true
+      generation: 2
+      chain_root_is_pct: true
+    template: '　本願は、{earliest_intl_filing_date}を国際出願日とする{earliest_apptype_phrase}（{earliest_appno}）の一部を、{parent_filing_date}に新たな特許出願とした{parent_appno}の一部を、{filing_date}に新たな{terminal_phrase}としたものであって（パリ条約による優先権主張　{priority_list}）、その手続の経緯の概略は、次のとおりである。'
+    fields_required:
+      - earliest_intl_filing_date
+      - earliest_apptype_phrase
+      - earliest_appno
+      - parent_filing_date
+      - parent_appno
+      - filing_date
+      - terminal_phrase
+    notes: |
+      earliest_intl_filing_date は JPP chain[-1].filing_date を使う
+        （divisionalApplicationInformation gen=0 entry には filingDate が空のため）
+      第2世代以降は「分割_第2世代」テンプレと文型構造が同じだが、最先がPCT国内段階の場合
+        「を国際出願日とする」付き＋apptype_phrase 付きとなる点が異なる
+      唯一の実例: 2023-020552（IB 系。corpus は「特許出願」中立表記、gen は「外国語特許出願」を採用）
+
+  分割_第2世代:
+    detector:
+      is_divisional: true
+      generation: 2
+    template: '　本願は，{grandparent_filing_date}（優先権主張　{priority_date}）に出願した{grandparent_appno}の一部を{parent_filing_date}に新たな特許出願とした{parent_appno}の一部を{filing_date}に新たな特許出願としたものであって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [grandparent_filing_date, grandparent_appno, parent_filing_date, parent_appno, filing_date]
+    notes: "優先権主張部分は任意（パターンに含まれていれば挿入）"
+
+  分割_第3世代以降:
+    detector:
+      is_divisional: true
+      generation: ">=3"
+    section_structure_z_kakka:
+      heading_lvl2_1: "１　出願分割の経緯の概略"
+      heading_lvl2_2: "２　本願の手続の経緯の概略"
+    section_structure_z_no_kakka:
+      heading_lvl3_1: "(１)　出願分割の経緯の概略"
+      heading_lvl3_2: "(２)　本願の手続の経緯の概略"
+    template_intro: '　本願は、{filing_date}にされた特許法４４条１項の規定による特許出願であって、{earliest_filing_date}に出願した{earliest_appno}を最先の出願とする、いわゆる第{generation_num}世代の分割出願であるところ、出願の分割の経緯は、次のとおりである。なお、括弧内は当該出願の提出日を示す。'
+    chain_lines:
+      first: '　最先の出願　：{earliest_appno}（{earliest_filing_date}）'
+      middle: '　第{n}世代分割：{appno}（{filing_date}）'
+      last: '　本願　　　　：{appno}（{filing_date}）'
+    next_section_intro: '　本願の出願後の手続の経緯の概略は、次のとおりである。'
+
+# --- 経過書類のリスト記載フォーマット ---
+chronology_line_format:
+  notes: |
+    Type A / Type B:「{元号N年MM月DD日}{付け or 　　}：書類種別」 (各列は全角空白で揃え)
+    Type C       :「（{元号N年MM月DD日}　　：書類種別）」 (拒絶査定の謄本送達などの括弧書き)
+    日付部は前行と比較して「同年MM月DD日」「同月DD日」「同日」に短縮されうる
+    （リダクションは Type C も含めて全行に適用、`_format_date_with_reduction` で動的決定）
+    「同年」「同月」は前行の年月と同じ場合に用いる。「同年同月」は書かない（同月は年含む概念）
+  patterns:
+    - regex: '^[\s　]*([令和平成昭和大正]\S+?年[ 　]*\S+?月[ 　]*\S+?日)(付け)?(\s+|　+)：(.+)$'
+    - regex: '^[\s　]*同年[ 　]*\S+?月[ 　]*\S+?日(付け)?(\s+|　+)：(.+)$'
+    - regex: '^[\s　]*同月[ 　]*\S+?日(付け)?(\s+|　+)：(.+)$'
+    - regex: '^[\s　]*同日(付け)?(\s+|　+)：(.+)$'
+
+# --- 書類タイプ別 日付取得ロジック (Updated: API XML 一本化) ---
+#  方針: 出願番号のみで動くシステム。担当者配布PDFには依存しない。
+#  Type A 起案日 = JPO API の書類本体XML drafting-date を 1次ソースとする。
+#  fallback は設けない。データ取得不能時は当該書類の出力を見送る or 失敗で停止。
+#
+# 検証実績 (44案件):
+#   拒絶理由通知書: 66/67 完全一致（残 1 件は alignment マッチング誤り）
+#   拒絶査定:       43/43 完全一致
+#   補正却下決定:   13/13 完全一致
+#   前置報告書:     1/1 完全一致 (J-PlatPat 経過情報経由)
+date_acquisition_by_type:
+  Type_A:
+    description: 庁作成書類（通知/査定）— API XML から起案日を取得
+    primary_source: JPO API `app_doc_cont_refusal_reason_decision/{appno}` の ZIP
+    extraction: |
+      ZIP 内の各 *.xml を Shift_JIS でデコードし、
+      <jp:drafting-date><jp:date>YYYYMMDD</jp:date></jp:drafting-date>
+      を起案日として取り出す。
+    documents_supported:
+      - documentCode: A131  # 拒絶理由通知書
+        document_name: 拒絶理由通知書
+      - documentCode: A02   # 拒絶査定
+        document_name: 拒絶査定
+      - documentCode: A502  # 補正の却下の決定
+        document_name: 補正の却下の決定
+      - documentCode: A03   # 特許査定
+        document_name: 特許査定
+    documents_via_jplatpat:
+      # JPO API 書類本体 endpoint には A913 が含まれない (実測確認済)
+      - documentCode: A913  # 前置報告書
+        document_name: 前置報告書
+        source: |
+          J-PlatPat 経過情報 → 「前置報告書」リンク → 本文ページの
+          <a name="D_PAGE1"></a> 以降の「作成日 元号N年M月D日」を抽出。
+          実装: tools/keii_python/06_fetch_zenchi_drafting.py
+    output_suffix: "日付け："
+    on_failure: |
+      該当書類の API XML / J-PlatPat 取得が失敗した場合は、当該行の出力を
+      見送り（または `<<参照エラー>>` で警告）して、推測で穴埋めしない。
+    fallback: なし  # legalDate (発送日) で代用しない
+
+  Type_B:
+    description: 提出書類（出願人提出）
+    documents:
+      - documentCode: A632   # 翻訳文（PCT外国語）
+      - documentCode: A53    # 意見書
+      - documentCode: A523   # 手続補正書（自発・内容のみ。方式は除外）
+      - documentCode: A971015 # 応対記録
+      - documentCode: C60    # 審判請求書
+      - documentCode: A781   # 上申書
+    date_source: doc_history.json の documentList[i].legalDate （受領日）
+    output_suffix: "日　　："  # 全角スペース2
+
+  Type_C:
+    description: 送達情報（A02 の謄本送達）
+    date_source: doc_history.json の A02 (拒絶査定) の legalDate（発送日）
+    output_suffix: "（括弧書き）"
+    note: |
+      A02 の直下に「（{date_jp}　　：原査定の謄本の送達）」として挿入。
+      {date_jp} は前行（通常 A02 拒絶査定）に対するリダクションで
+      「令和N年MM月DD日」「同年MM月DD日」「同月DD日」「同日」のいずれかになる。
+      実例: A02 の発送日が査定起案日と同月内なら「（同月●●日　　：…）」、
+      別月にまたぐ場合は「（同年●月●日　　：…）」、別年なら「（令和●年●月●日　　：…）」。
+
+# --- AppType 判定ロジック (history-rules.md §1.1) ---
+apptype_decision_logic:
+  - apptype: A   # PCT外国語特許出願
+    cond: 'internationalApplicationNumber AND nationalPublicationNumber'
+    legal_basis: 特184条の4第1項
+  - apptype: B   # PCT日本語特許出願
+    cond: 'internationalApplicationNumber AND NOT nationalPublicationNumber'
+    legal_basis: 特184条の3第1項
+  - apptype: C   # 外国語書面出願
+    cond: 'NOT internationalApplicationNumber AND (翻訳文書類存在 OR 外国語書面フラグ)'
+    legal_basis: 特36条の2第1項
+  - apptype: D   # 通常の特許出願
+    cond: 上記以外
+    legal_basis: 特36条
+
+# --- AppType 別の出願日表現 ---
+filing_date_format:
+  A: 西暦（和暦）形式  # 例: ２０１８年（平成３０年）８月３０日
+  B: 西暦（和暦）形式
+  C: 和暦形式  # 例: 令和元年８月２９日
+  D: 和暦形式
+
+# --- 50条の2通知の検出（追加ルール6） ---
+fifty_no_two_notice:
+  description: 拒絶理由通知書本文に「特許法第５０条の２の規定による通知」の記述がある場合
+  output_change: 拒絶理由通知書 → 特許法５０条の２の通知を伴う拒絶理由通知書
+
+# --- 上申書の出力条件（追加ルール5） ---
+joushinsho_output_rule:
+  default: 前置報告書の後にある上申書のみ出力
+  rationale: ローカルルール「前置報告書に対する上申書があるような場合を除いて、原則上申書は書かない」
+  override: 前置報告書の後にあるものは必ず出力（前置報告書への応答）
+
+
+# --- 末尾の優先日定義（優先権主張がある場合）---
+yusenbi_definition:
+  template: '　以下、{seireki_year}年（{wareki}）{month}月{day}日を「優先日」という。'
+  applies_when: "has_priority == true"
+
+# --- 当審拒絶理由通知 / 当審意見書の略称定義（任意・末尾）---
+toushin_aliases:
+  toushin_kyozetsu_riyu:
+    template: 'なお、{date}付けで当審において通知した拒絶理由通知を、以下「当審拒絶理由通知」という。'
+    optional: true
+  toushin_iken:
+    template: 'また、{date}付けで請求人が提出した意見書を、以下「意見書」という。'
+    optional: true
+
+# --- 経過書類の典型ライン ---
+typical_chronology_documents:
+  - "拒絶理由通知書"
+  - "拒絶理由通知書（最後）"
+  - "意見書、手続補正書の提出"
+  - "意見書の提出"
+  - "意見書及び手続補正書の提出"
+  - "手続補正書の提出"
+  - "補正の却下の決定"
+  - "拒絶査定（以下「原査定」という。）"
+  - "原査定の謄本の送達"   # 括弧書きが多い
+  - "審判請求書、手続補正書の提出"
+  - "審判請求書の提出"
+  - "前置報告書"
+  - "上申書の提出"
+  - "面接"
+  - "翻訳文の提出"

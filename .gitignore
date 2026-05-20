@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# 個人環境設定 (settings.example.yaml をコピーして作成)
+settings.yaml
+
+# 正解集合 (各自で準備)
+corpus/
+
+# 取得済みデータ (fetch スクリプトで populate)
+inventory/
+
+# 補助探索ディレクトリ (オプション)
+inputs/

@@ -1,0 +1,328 @@
+# keii_model.yaml — 「手続の経緯」生成のための最終モデル仕様
+#
+# このファイルはルールベース生成器（Pure Python・LLMフリー）が読み込んで
+# 案件 doc_history + 起案日データから「手続の経緯」テキストを組み立てるための
+# 仕様書である。
+#
+# 構成:
+#   1. canonical 骨格（HEAD → [DIV] → INTRO → CHRONO → 末尾）
+#   2. INTRO 11 パターン（パリ／国内優先／PCT／外国語書面／分割／多世代）
+#   3. CHRONO 行生成ルール（接続語・修飾子・同年同月リダクション・揃え）
+#   4. 末尾要素（PRIO_DEF / ALIAS_*）
+#   5. 開発者ルール由来の細則
+#
+# データソースの参照は generator/dates.py（抽象層）経由。
+# 起案日取得経路の仕様は templates/rules_developer.yaml を参照。
+
+version: "1.0"
+generated: "2026-04-29"
+        z_kakka: "第１　手続の経緯"
+        # 却下無しZ 起案の場合（先頭の「第」がない）
+        z_no_kakka: "１　手続の経緯"
+      selector: 起案種別パラメータ kkokka_kind ∈ {z_kakka, z_no_kakka}
+
+    - id: DIV_BLOCK   # 多世代分割 (第3世代以降) のみ
+      required: false
+      condition: pattern == "分割_第3世代以降"
+      template: |
+        １　出願分割の経緯の概略       # 却下Z (第1世代分割は不要)
+        　本願は、{filing_date}にされた特許法４４条１項の規定による特許出願であって、
+        {earliest_filing_date}に出願した{earliest_appno}を最先の出願とする、
+        いわゆる第{generation_num}世代の分割出願であるところ、出願の分割の経緯は、
+        次のとおりである。なお、括弧内は当該出願の提出日を示す。
+        最先の出願　：{earliest_appno}（{earliest_filing_date}）
+        第１世代分割：{appno_gen1}（{filing_date_gen1}）
+        ...
+        本願　　　　：{appno}（{filing_date}）
+
+        ２　本願の手続の経緯の概略
+        　本願の出願後の手続の経緯の概略は、次のとおりである。
+
+    - id: INTRO
+      required: true
+      ref: "honyo_intro_patterns"  # 下記§2 を参照
+      indent: "　"  # 全角空白1個
+      ends_with: "次のとおりである。"
+
+    - id: CHRONO_LIST
+      required: true
+      description: 全 Type A/B/C エントリを時系列に並べた行群
+      generator_ref: "chronology_rules"  # §3 を参照
+
+    - id: ALIAS_TAIL
+      required: false
+      condition: 当審拒絶理由通知や指定意見書がある場合のみ
+      ref: "alias_definitions"  # §4 を参照
+
+    - id: PRIO_DEF_INDEPENDENT
+      required: false
+      condition: |
+        PRIO_DEF を独立段落で出力する流儀の場合のみ
+        （default は INTRO 末尾「なお接続」で出力するため通常不要）
+      template: '　以下、{seireki_year}年（{wareki}）{month}月{day}日を「優先日」という。'
+
+# ============================================================================
+# 2. INTRO 11 パターン
+# ============================================================================
+honyo_intro_patterns:
+  # rules_developer.yaml で定義した 11 パターンを参照する。下記は要点だけ再掲。
+  description: |
+    パターン選択は generator/classify.py の detect_pattern() が doc_history.json から決定する。
+    各テンプレートの全文は templates/rules_developer.yaml の honyo_intro_patterns 節を参照。
+
+  decision_table:
+    通常内国出願:
+      condition: not has_priority and not is_pct and not is_divisional
+    国内優先権:
+      condition: has_priority and priority_type == "国内" and not is_pct and not is_divisional
+      note: |
+        開発者ルール コメント[8]: 国内優先の場合、優先権主張日の括弧内は和暦のみ
+        （西暦は記載しない）
+    国内優先＋日本語ＰＣＴ:
+      condition: has_priority and priority_type == "国内" and is_pct and is_japanese_pct
+    パリ条約優先権:
+      condition: has_priority and priority_type == "パリ" and not is_pct
+      note: 複数優先の場合はカンマ区切りで連結
+    パリ条約の例（台湾）:
+      condition: has_priority and priority_type == "パリの例"
+      note: |
+        開発者ルール コメント[10/12]: 台湾は特許法43条の3を根拠とする
+        「パリ条約の例による優先権主張」と表記する
+    パリ条約優先＋ＰＣＴ:
+      condition: has_priority and priority_type == "パリ" and is_pct and not is_japanese_pct
+      note: 「パリ条約による優先権主張外国庁受理…」表記
+    パリ条約優先＋外国語書面出願:
+      condition: has_priority and priority_type == "パリ" and is_foreign_paper
+    分割_基本形:
+      condition: is_divisional and generation == 1 and not parent_is_pct
+    分割_PCT原出願:
+      condition: is_divisional and generation == 1 and parent_is_pct
+    分割_第2世代:
+      condition: is_divisional and generation == 2
+    分割_第3世代以降:
+      condition: is_divisional and generation >= 3
+      note: DIV_BLOCK 構造（§1 参照）を併用
+
+# ============================================================================
+# 3. CHRONO 行生成ルール
+# ============================================================================
+chronology_rules:
+
+  # 3.1 並び順
+  ordering:
+    primary: 日付昇順
+    same_day_tiebreak:
+      - Type A の前に補正の却下決定 (A502) があれば先に
+      - 拒絶査定 (A02) の直下に Type C 「原査定の謄本の送達」を挿入
+      - 同日複数 Type B は単一行に結合（下記 same_day_combination 参照）
+
+  # 3.2 出力フォーマット (1行)
+  line_format:
+    type_A:
+      template: "{date_jp}付け：{document_name}"
+      # date_jp は 13 全角文字幅 (令和N年 + 全角空白 + M月 + DD日 + 「付け」 + ：)
+      # 行頭インデント: 0 全角空白（first column 揃え）
+    type_B:
+      template: "{date_jp}　　：{document_name}"  # 「日」の後に全角空白2 + ：
+    type_C:
+      template: "　　　　　（{date_jp}　　：原査定の謄本の送達）"
+      # 行頭 全角空白5 + 「（」 開始
+
+  # 3.3 同年/同月/同日 リダクション（前行と比較）
+  date_reduction:
+    same_year: 「{令和N年}」 → 「同年」（前行と年が同じ）
+    same_year_month: 「{令和N年}{M月}」 → 「同月」（前行と年月が同じ）
+    same_year_month_day: 「{令和N年}{M月}{D日}」 → 「同日」（前行と日まで同じ）
+    forbidden_combinations:
+      - "同年同月"  # 開発者ルール コメント[6]: 「同月」が年を含む概念
+    indent_for_reduced: 全角空白3個（先頭に「　　　」）
+
+  # 3.4 桁揃え（13 全角文字 + ：）
+  column_alignment:
+    description: |
+      位置: 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+      年号 (フル): 　 令 和 N 年 M M 月 D D 日 付 け ：
+      年号 (1桁月): 　 令 和 N 年 　 M 月 D D 日 付 け ：
+      年号 (1桁日): 　 令 和 N 年 M M 月 　 D 日 付 け ：
+      同年 (フル): 　 　 　 同 年 M M 月 D D 日 付 け ：
+      同年 (1桁月): 　 　 　 同 年 　 M 月 D D 日 付 け ：
+    rules:
+      - 年は位置5
+      - 月は位置8
+      - 日は位置11
+      - ： は位置14
+      - 1桁月／1桁日は前に全角スペース1個でパディング
+      - 「付け」あり: 「日付け：」（スペースなし）
+      - 「付け」なし: 「日　　：」（全角スペース2）
+      - 「同年」は先頭3スペース（年を位置5に揃える）
+      - Type C 送達行は先頭5スペース＋「（」で別ルール（§3.2 参照）
+
+  # 3.5 同一日結合
+  same_day_combination:
+    rule: 同じ日付に提出された Type B 書類は「、」で結合し1行に
+    connector_preferred: "、"
+    connector_alternative: "及び"   # 古い起案者の流儀。標準は「、」（コーパス 104:6）
+    typical_pairs:
+      - 意見書、手続補正書        # 64件 (最頻)
+      - 審判請求書、手続補正書    # 38件
+      - 上申書、手続補正書        # 6件
+    output_template: "{date_jp}　　：{doc1}、{doc2}の提出"
+
+  # 3.6 修飾子
+  modifiers:
+    "（最後）":
+      target: 拒絶理由通知書
+      condition: 同案件で複数の拒絶理由通知書がある場合の最後のもの
+      cases_in_corpus: 14
+    "（最初）":
+      target: 拒絶理由通知書
+      condition: 複数のうち最初のもの。慣例的に省略されることが多い（コーパス 3件）
+      output: 通常省略
+    "特許法５０条の２の通知を伴う":
+      target: 拒絶理由通知書
+      detection: 拒絶理由通知書本文に「特許法第５０条の２」記載がある場合
+      template: "特許法５０条の２の通知を伴う拒絶理由通知書"
+      data_source: |
+        inventory/doc_xmls/{appno}/*.xml の本文（drafting-body）
+        または inventory/jplatpat_dates/{appno}.json で取得済の HTML
+    "（以下「原査定」という。）":
+      target: 拒絶査定 (A02)
+      always_appended: true   # コーパス 48件中の拒絶査定にほぼ必ず付与（48件）
+      template: "拒絶査定（以下「原査定」という。）"
+
+  # 3.7 書類名の正規化
+  document_name_normalization:
+    意見書: 意見書
+    手続補正書: 手続補正書       # 「（自発・内容）」「（補正命令）」のサフィックスは除去
+    "手続補正書（方式）": 出力しない  # 実体補正でないため
+    審判請求書: 審判請求書
+    上申書: 上申書
+    応対記録: 応対記録          # 全件出力（複数あっても省略しない）
+    面接: 応対記録              # 同上
+    翻訳文の提出: 翻訳文の提出   # PCT外国語の場合
+    国内書面の提出: 国内書面の提出  # PCT日本語の場合
+    誤訳訂正書: 誤訳訂正書       # 手続補正書と同格
+    拒絶理由通知書: 拒絶理由通知書
+    拒絶査定: "拒絶査定（以下「原査定」という。）"
+    補正の却下の決定: 補正の却下の決定
+    前置報告書: 前置報告書
+    特許査定: 特許査定
+
+  # 3.8 上申書の出力条件 (開発者ルール コメント[7])
+  joushinsho_rule:
+    rule: 前置報告書の後にある上申書のみ出力（前置への応答）
+    pre_zenchi_joushin: 出力しない（原則）
+    rationale: |
+      ローカルルール: 「前置報告書に対する上申書があるような場合を除いて、
+      原則上申書は書かない」
+
+# ============================================================================
+# 4. 末尾要素
+# ============================================================================
+tail_elements:
+
+  # 4.1 優先日定義
+  prio_def:
+    description: 優先権主張がある場合、「優先日」の定義を出力する
+    style_default: A   # P1-history.md v0.4 推奨
+    styles:
+      A:
+        location: INTRO 行末「なお」接続
+        template: '　本願は、…次のとおりである。なお、{seireki_year}年（{wareki}）{month}月{day}日を以下「優先日」という。'
+        cases_in_corpus: 9
+      B:
+        location: INTRO 内括弧ネスト
+        template: '　本願は、…（優先権主張　{date_jp}（以下「優先日」という。））の出願であって…'
+        cases_in_corpus: 6
+      C:
+        location: CHRONO 末尾の独立段落
+        template: "　以下、{seireki_year}年（{wareki}）{month}月{day}日を「優先日」という。"
+        cases_in_corpus: 8
+    selector: user_preference / default A
+
+  # 4.2 ALIAS（当審拒絶理由通知 / 意見書）
+  alias_toshin_kyozetsu:
+    condition: 拒絶理由通知書のうち少なくとも1つが当審の通知である場合
+    template: "なお、{date}付けで当審において通知した拒絶理由通知書を、以下「当審拒絶理由通知書」という。"
+    cases_in_corpus: 2
+  alias_iken:
+    condition: 当審拒絶理由通知に対する意見書がある場合の指定
+    template: "また、{date}付けで請求人が提出した意見書を、以下「意見書」という。"
+    cases_in_corpus: 1
+
+# ============================================================================
+# 5. 開発者ルール由来の細則
+# ============================================================================
+one_bumon_comments:
+  source: 開発者ルール コメント抽出（inventory/rules_developer_comments.md）
+  rules:
+    - id: comment_3_5_warning
+      target: WO番号 / 国内公表番号
+      content: 「審判刷新システムでは、間違いがあるので要注意」
+      action: doc_history.json の該当値は実値検証を推奨
+
+    - id: comment_6_no_dou_nen_dou_getsu
+      target: 同月
+      content: 「同年同月」とは書きません。「同月」は年まで含む概念
+      action: |
+        chronology_rules.date_reduction.forbidden_combinations に「同年同月」を含める
+
+    - id: comment_7_joushin_rule
+      target: 上申書
+      content: 前置報告書に対する上申書があるような場合を除いて、原則上申書は書かない
+      action: chronology_rules.joushinsho_rule に反映済
+
+    - id: comment_8_kokunai_yusen
+      target: 国内優先権主張
+      content: 41条の国内優先の場合、優先権主張日の表記は和暦のみ（西暦不要）
+      action: |
+        国内優先の priority_list は to_wareki() で和暦のみ生成（西暦付加しない）
+
+    - id: comment_9_japanese_pct
+      target: 日本語ＰＣＴ
+      content: |
+        184条の6第1項の語「日本語特許出願」を用いる。
+        国際出願日は西暦年（和暦年は括弧書き）
+      action: 既存テンプレで対応済 (to_seireki_wareki())
+
+    - id: comment_10_12_taiwan
+      target: 台湾の優先権主張
+      content: 43条の3を根拠とする「パリ条約の例による優先権主張」
+      action: countryCd == "TW" の場合に「パリ条約の例による」を選択
+
+    - id: comment_13_foreign_pct
+      target: 外国語特許出願
+      content: |
+        184条の4第1項の語「外国語特許出願」を用いる。
+        翻訳文の提出日を経緯の概略に書くのが望ましい
+      action: PCT外国語出願の経過リストには翻訳文行を必ず含める
+
+    - id: comment_14_foreign_paper
+      target: 外国語書面出願
+      content: |
+        36条の2の外国語書面出願は「外国語書面出願」を明示。
+        翻訳文の提出日を経緯の概略に書く
+      action: 外国語書面出願の経過リストには翻訳文行を必ず含める
+
+# ============================================================================
+# 6. 生成器インターフェース仕様
+# ============================================================================
+generator_interface:
+  function_signature: |
+    def generate_keii_section(
+        appno: str,
+        kkokka_kind: Literal["z_kakka", "z_no_kakka"] = "z_kakka",
+        prio_def_style: Literal["A", "B", "C"] = "A",
+    ) -> tuple[str, list[TraceEntry]]:
+        """
+        Returns:
+          (text, trace) — テキスト本体と TRACE.md 行のリスト
+        """
+  data_dependencies:
+    - generator.dates.get_doc_dates(appno)  # 統一書類リスト
+    - doc_history.json の data 部
+    - templates/rules_developer.yaml (テンプレ群)
+    - templates/keii_model.yaml  (本ファイル)
+  failure_modes:
+    - 必須フィールド欠落: <<参照エラー: [field]>> を挿入しユーザー報告
+    - 起案日取得失敗: 当該行を出力せず警告（ハルシネーション禁止）
