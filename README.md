@@ -25,7 +25,7 @@
 ## ディレクトリ構成
 
 ```
-keii_python_pub/
+keii_pub/
 ├── README.md                     ← 本ファイル
 ├── SPEC_overall.md               ← 全体仕様
 ├── SPEC_testing.md               ← テスト仕様
