@@ -1,4 +1,4 @@
-# keii_python — 「手続の経緯」自動生成
+# keii_pub — 「手続の経緯」自動生成
 
 審決起案の「手続の経緯」節を、Python ルールベース（LLM フリー）で自動生成する。
 入力は **出願番号 1 件のみ**。分割出願（多世代）／優先権（パリ・国内）／PCT 国内段階／外国語書面出願 とそれらの複合に対応する。
@@ -74,7 +74,7 @@ cp settings.example.yaml settings.yaml
 
 ```yaml
 # JPO API 認証情報の格納ディレクトリ（必須・データ取得時）
-jpo_api_credentials_dir: ~/.config/keii_python/jpo_api
+jpo_api_credentials_dir: ~/.config/keii_pub/jpo_api
 
 # 既存 doc_history.json を補助的に探すディレクトリ（オプション）
 inputs_fallback_dir: null

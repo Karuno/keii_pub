@@ -1,4 +1,4 @@
-# keii_python ローカル設定テンプレート
+# keii_pub ローカル設定テンプレート
 # -----------------------------------------------------------------------------
 # 使い方:
 #   1. このファイルを `settings.yaml` という名前でコピー
@@ -23,7 +23,7 @@
 #
 # Windows パス例:  G:\マイドライブ\pg\AI_examiner\jpo_api
 # WSL パス例:      /mnt/g/マイドライブ/pg/AI_examiner/jpo_api
-# Linux/macOS 例:  ~/.config/keii_python/jpo_api
+# Linux/macOS 例:  ~/.config/keii_pub/jpo_api
 jpo_api_credentials_dir: ""
 
 # [オプション]

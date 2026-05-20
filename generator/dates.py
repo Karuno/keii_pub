@@ -5,14 +5,14 @@
 
 優先順位:
   1. Primary（API + 補完 J-PlatPat）
-     - tools/keii_python/inventory/doc_xmls/{appno}/_summary.json
+     - inventory/doc_xmls/{appno}/_summary.json
        Type A 書類の drafting-date（拒絶理由通知書/拒絶査定/補正の却下/特許査定）
-     - tools/keii_python/inventory/zenchi_drafting/{appno}.json
+     - inventory/zenchi_drafting/{appno}.json
        前置報告書の作成日（J-PlatPat）
      - inputs/.../doc_history/doc_history.json
        Type B 書類の legalDate、Type C 送達日（A02 legalDate）
   2. Fallback（API 不通時）
-     - tools/keii_python/inventory/jplatpat_dates/{appno}.json
+     - inventory/jplatpat_dates/{appno}.json
        全書類分の起案日／受領日（J-PlatPat スクレイピング）
 
 公開 API:

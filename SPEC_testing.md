@@ -1,4 +1,4 @@
-# keii_python テスト仕様書
+# テスト仕様書
 
 最終更新: 2026-05-20
 対象: `92_batch_generate.py` + `_compare_A1.py` + `A1_classify_check.py` ほか検証ツール群

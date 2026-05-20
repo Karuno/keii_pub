@@ -359,7 +359,7 @@ def _main() -> None:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from tools.keii_python.generator.dates import get_doc_dates
+    from generator.dates import get_doc_dates
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("appno")

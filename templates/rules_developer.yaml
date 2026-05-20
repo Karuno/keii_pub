@@ -215,7 +215,7 @@ date_acquisition_by_type:
         source: |
           J-PlatPat 経過情報 → 「前置報告書」リンク → 本文ページの
           <a name="D_PAGE1"></a> 以降の「作成日 元号N年M月D日」を抽出。
-          実装: tools/keii_python/06_fetch_zenchi_drafting.py
+          実装: 06_fetch_zenchi_drafting.py
     output_suffix: "日付け："
     on_failure: |
       該当書類の API XML / J-PlatPat 取得が失敗した場合は、当該行の出力を

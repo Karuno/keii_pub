@@ -3,8 +3,8 @@
 HEAD + INTRO + CHRONO + 末尾を組み立てる。
 
 CLI:
-  python -m tools.keii_python.generator.keii 2018244177
-  python -m tools.keii_python.generator.keii 2018244177 --kind z_no_kakka
+  python -m generator.keii 2018244177
+  python -m generator.keii 2018244177 --kind z_no_kakka
 """
 from __future__ import annotations
 

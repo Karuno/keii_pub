@@ -34,7 +34,7 @@ import sys
 import traceback
 from pathlib import Path
 
-# プロジェクトルート: tools/keii_python/01_collect_corpus.py から見て3階層上
+# プロジェクトルート: 01_collect_corpus.py から見て3階層上
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE  # claude_appeal/
 sys.path.insert(0, str(REPO_ROOT))

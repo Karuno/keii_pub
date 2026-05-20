@@ -2,7 +2,7 @@
 
 設定値の優先順位:
   1. 環境変数 (KEII_*)
-  2. tools/keii_python/settings.yaml
+  2. settings.yaml
   3. 組み込みデフォルト (None)
 
 公開 API:
