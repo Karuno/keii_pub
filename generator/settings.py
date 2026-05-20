@@ -1,4 +1,4 @@
-"""generator/settings.py — keii_python のローカル設定ローダ
+"""generator/settings.py — keii_pub のローカル設定ローダ
 
 設定値の優先順位:
   1. 環境変数 (KEII_*)
