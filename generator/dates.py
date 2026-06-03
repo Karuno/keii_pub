@@ -205,7 +205,26 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
     biblio = raw.get("result", {}).get("data", {}).get("bibliographyInformation", []) or []
     out: list[DocumentEntry] = []
 
+    # 翻訳文の提出日を決定する優先ルール:
+    #   A634 (国際出願翻訳文提出書セット) があればその日付を採用
+    #   A634 が無く A632 (国内書面+翻訳文セット) のみなら A632 を採用
+    # これは PCT 国内移行で国内書面と別日に翻訳文実体を提出するケースに対応。
+    a634_dates: set[str] = set()
+    a632_dates: set[str] = set()
+    for b in biblio:
+        for d in b.get("documentList", []) or []:
+            code = d.get("documentCode", "")
+            legal = d.get("legalDate", "")
+            if not legal:
+                continue
+            if code == "A634":
+                a634_dates.add(legal)
+            elif code == "A632":
+                a632_dates.add(legal)
+    translation_dates = a634_dates if a634_dates else a632_dates
+
     # Type B
+    seen_translation_dates: set[str] = set()
     for b in biblio:
         for d in b.get("documentList", []) or []:
             code = d.get("documentCode", "")
@@ -227,7 +246,13 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 name = "審判請求書"
             elif code == "A781":
                 name = "上申書"
-            elif code == "A632":
+            elif code in ("A632", "A634"):
+                # 翻訳文提出: 採用対象の日付のみ (重複は 1 件)
+                if legal not in translation_dates:
+                    continue
+                if legal in seen_translation_dates:
+                    continue
+                seen_translation_dates.add(legal)
                 name = "翻訳文"  # chronology.py が「の提出」を付与
             else:
                 continue
