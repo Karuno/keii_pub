@@ -65,6 +65,7 @@ TYPE_A_DOCS = {
     "A502": "補正の却下の決定",
     "A03":  "特許査定",
     "A913": "前置報告書",  # API 提供範囲外、J-PlatPat から取得
+    "C13":  "当審拒絶理由通知書",  # 審判段階（前置解除後）
 }
 
 TYPE_B_DOCS = {
@@ -77,7 +78,7 @@ TYPE_B_DOCS = {
 }
 
 # 生成器が出力する書類タイプ判定（書類名キーワード）
-TYPE_A_KEYWORDS = ["拒絶理由通知書", "拒絶査定", "補正の却下の決定", "特許査定", "前置報告書"]
+TYPE_A_KEYWORDS = ["拒絶理由通知書", "拒絶査定", "補正の却下の決定", "特許査定", "前置報告書", "当審拒絶理由通知書"]
 
 
 def is_type_a_by_name(name: str) -> bool:
@@ -255,6 +256,23 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                         raw={"a02_legalDate": legal},
                     ))
                 break  # A02 は通常1件
+
+    # Type A from doc_history: 審判段階の当審拒絶理由通知書 (C13)
+    # 審判段階の書類は JPO API の outbound XML で取得できないため、doc_history から拾う
+    for b in biblio:
+        for d in b.get("documentList", []) or []:
+            if d.get("documentCode") == "C13":
+                legal = d.get("legalDate", "")
+                iso = _yyyymmdd_to_iso(legal)
+                if iso:
+                    out.append(DocumentEntry(
+                        name="当審拒絶理由通知書",
+                        code="C13",
+                        date_iso=iso,
+                        doc_type="A",
+                        source="doc_history",
+                        raw=d,
+                    ))
     return out
 
 
@@ -361,15 +379,32 @@ def get_doc_dates_with_source(appno: str) -> tuple[list[DocumentEntry], str]:
         entries = summary + zenchi + history
         # 日付昇順ソート（同日内は doc_type A→B→C 安定）
         entries.sort(key=lambda e: (e.date_iso, {"A": 0, "B": 1, "C": 2}[e.doc_type]))
+        # 同日・同タイプ・同名は dedupe (PCT 国内移行時に A632 が複数書類セット
+        # として登録されるが、起案上は「翻訳文の提出」1 行にまとめる慣行)
+        entries = _dedupe_same_day_same_name(entries)
         return entries, "primary"
 
     # Fallback 経路
     fallback = _from_jplatpat_fallback(appno)
     if fallback:
         fallback.sort(key=lambda e: (e.date_iso, {"A": 0, "B": 1, "C": 2}[e.doc_type]))
+        fallback = _dedupe_same_day_same_name(fallback)
         return fallback, "fallback"
 
     return [], "none"
+
+
+def _dedupe_same_day_same_name(entries: list[DocumentEntry]) -> list[DocumentEntry]:
+    """同日・同タイプ・同名の重複を除去 (順序は保つ)。"""
+    seen: set[tuple[str, str, str]] = set()
+    out: list[DocumentEntry] = []
+    for e in entries:
+        key = (e.date_iso, e.doc_type, e.name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
 
 
 def get_doc_dates(appno: str) -> list[DocumentEntry]:
