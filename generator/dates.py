@@ -69,7 +69,7 @@ TYPE_A_DOCS = {
 }
 
 TYPE_B_DOCS = {
-    "A632":   "翻訳文の提出",  # ※ 国内書面の場合は A621
+    "A632":   "翻訳文",  # ※ 国内書面の場合は A621。chronology で「の提出」を付与
     "A53":    "意見書",
     "A523":   "手続補正書",   # （方式）は除外
     "A971015": "応対記録",
@@ -228,7 +228,7 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
             elif code == "A781":
                 name = "上申書"
             elif code == "A632":
-                name = "翻訳文の提出"
+                name = "翻訳文"  # chronology.py が「の提出」を付与
             else:
                 continue
             out.append(DocumentEntry(
@@ -352,7 +352,7 @@ def _normalize_type_b_name(raw_name: str) -> str | None:
     if "応対記録" in raw_name or "面接" in raw_name:
         return "応対記録"
     if "翻訳文" in raw_name:
-        return "翻訳文の提出"
+        return "翻訳文"
     if "誤訳訂正" in raw_name:
         return "誤訳訂正書"
     return None
