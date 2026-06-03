@@ -105,6 +105,44 @@ def divisional_terminal_phrase(data: dict[str, Any]) -> str:
     return "特許出願"
 
 
+def _load_doc_history_data(appno: str) -> dict[str, Any] | None:
+    """inventory/doc_history_collected/{appno}.json の data 部を返す (なければ None)。"""
+    if not appno:
+        return None
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(__file__).resolve().parent.parent / "inventory" / "doc_history_collected" / f"{appno}.json"
+    if not p.exists():
+        return None
+    try:
+        return _json.loads(p.read_text(encoding="utf-8")).get("result", {}).get("data", {}) or {}
+    except (OSError, ValueError):
+        return None
+
+
+def parent_apptype_phrase(parent_appno: str) -> str | None:
+    """親出願 (parent_appno) の doc_history を読み、apptype に対応する
+    「分割の親」として表記すべきフレーズを返す。
+
+    返り値:
+      - "外国語書面出願"           — 親が国内出願 + A631/A632 あり (外国語書面)
+      - None                         — 親が通常の国内出願 (= 「特願xxx号」のみ)
+      - PCT 系は本関数では返さない (intro.py が pattern 分岐で別途扱う)
+
+    親 doc_history が無ければ None を返す (= フォールバック「特願xxx号」)。
+    """
+    data = _load_doc_history_data(parent_appno)
+    if not data:
+        return None
+    intl_appno = data.get("internationalApplicationNumber") or ""
+    if intl_appno:
+        # PCT 国内段階 — 本関数では扱わない (上位の pattern 分岐に任せる)
+        return None
+    if has_translation_doc(data):
+        return "外国語書面出願"
+    return None
+
+
 def is_pct_national_phase(appno: str) -> bool:
     """出願番号10桁の5桁目（=下6桁の1桁目）が "5" なら PCT 国内段階。
 

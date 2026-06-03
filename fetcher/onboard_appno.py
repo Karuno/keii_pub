@@ -143,8 +143,29 @@ def _fetch_doc_xmls(appno: str, token: str, inv_dir: Path) -> Path | None:
 
 
 def _fetch_parent_chain(appno: str, token: str, inv_dir: Path) -> Path | None:
+    """本願の親チェーンを辿り、各親の doc_history も併せて inventory に保存。
+
+    parentApplicationInformation['parentApplicationNumber'] は dict ですが、
+    実体は単数。{parent_appno → さらに祖父…} と再帰し、各親について
+    doc_history_collected も保存する (有/無で apptype 判定が変わるため)。
+    """
     out = inv_dir / "parent_chains" / f"{appno}.json"
     if out.exists():
+        # 念のため既存だけでなく、parent 各々の doc_history も補完取得
+        try:
+            chain = json.loads(out.read_text(encoding="utf-8")).get("chain", [])
+            for entry in chain:
+                a = entry.get("appno", "")
+                if a and a != appno:
+                    dh_p = inv_dir / "doc_history_collected" / f"{a}.json"
+                    if not dh_p.exists():
+                        time.sleep(SLEEP_SEC)
+                        r = api_get(f"app_progress/{a}", token)
+                        if r.get("result", {}).get("statusCode") == "100":
+                            dh_p.parent.mkdir(parents=True, exist_ok=True)
+                            dh_p.write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            pass
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
     chain: list[dict[str, Any]] = []
@@ -163,6 +184,10 @@ def _fetch_parent_chain(appno: str, token: str, inv_dir: Path) -> Path | None:
             if r.get("result", {}).get("statusCode") != "100":
                 break
             data = r["result"]["data"]
+            # 親の doc_history も保存 (cur != 本願 のときに保存)
+            if cur != appno:
+                dh.parent.mkdir(parents=True, exist_ok=True)
+                dh.write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
         parent_info = data.get("parentApplicationInformation") or []
         parent_appno = (parent_info[0].get("parentApplicationNumber") if parent_info else None) or ""
         chain.append({

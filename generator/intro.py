@@ -105,9 +105,19 @@ def generate_intro(data: dict[str, Any]) -> dict:
         if missing:
             text = f"<<参照エラー: 分割親情報不足 {missing}>>"
         else:
-            text = (f"{HEAD}{to_wareki(parent_filing)}に出願した特願"
-                    f"{_format_appno_with_dash(parent_appno)}号の一部を"
-                    f"{to_wareki(filing_date)}に新たな特許出願としたものであって、{TAIL}")
+            # 親が外国語書面出願なら「外国語書面出願（特願xxx号）」、それ以外は「特願xxx号」
+            from .classify import parent_apptype_phrase, divisional_terminal_phrase
+            parent_label = parent_apptype_phrase(parent_appno)
+            appno_str = f"特願{_format_appno_with_dash(parent_appno)}号"
+            parent_phrase = f"{parent_label}（{appno_str}）" if parent_label else appno_str
+            # 本願自身の終端 (外国語書面出願か通常か)
+            self_terminal = divisional_terminal_phrase(data)
+            # 優先権括弧 (本願の priorityRightInformation ベース)
+            prio_str = _format_paris_priority_list(paris_prios) if paris_prios else ""
+            paren = f"（パリ条約による優先権主張　{prio_str}）" if prio_str else ""
+            text = (f"{HEAD}{to_wareki(parent_filing)}に出願した{parent_phrase}の一部を"
+                    f"{to_wareki(filing_date)}に新たな{self_terminal}としたものであって"
+                    f"{paren}、{TAIL}")
 
     elif pattern == "分割_第2世代":
         # JPP chain の filing_date は ISO 形式 'YYYY-MM-DD'
@@ -121,11 +131,19 @@ def generate_intro(data: dict[str, Any]) -> dict:
             p_appno = parent.get("appno", "")
             p_filing = (parent.get("filing_date") or "").replace("-", "")
             if gp_filing and p_filing and filing_date:
-                text = (f"{HEAD}{to_wareki(gp_filing)}に出願した特願"
-                        f"{_format_appno_with_dash(gp_appno)}号の一部を"
+                from .classify import parent_apptype_phrase, divisional_terminal_phrase
+                # 最先 (gp = 祖父 = 最も古い親) の apptype phrase
+                gp_label = parent_apptype_phrase(gp_appno)
+                gp_appno_str = f"特願{_format_appno_with_dash(gp_appno)}号"
+                gp_phrase = f"{gp_label}（{gp_appno_str}）" if gp_label else gp_appno_str
+                self_terminal = divisional_terminal_phrase(data)
+                prio_str = _format_paris_priority_list(paris_prios) if paris_prios else ""
+                paren = f"（パリ条約による優先権主張　{prio_str}）" if prio_str else ""
+                text = (f"{HEAD}{to_wareki(gp_filing)}に出願した{gp_phrase}の一部を"
                         f"{to_wareki(p_filing)}に新たな特許出願とした特願"
                         f"{_format_appno_with_dash(p_appno)}号の一部を"
-                        f"{to_wareki(filing_date)}に新たな特許出願としたものであって、{TAIL}")
+                        f"{to_wareki(filing_date)}に新たな{self_terminal}としたものであって"
+                        f"{paren}、{TAIL}")
             else:
                 text = "<<参照エラー: 第2世代分割の filingDate 不足>>"
         else:
@@ -143,6 +161,10 @@ def generate_intro(data: dict[str, Any]) -> dict:
             generation_num = len(chain) - 1  # 親の代数（本願は除く）
             n_chr = _gen_num_to_kanji(generation_num)
             if earliest_filing:
+                # 第3世代以降は最先出願を「特願xxx号」で示す形式が確立しており、
+                # 外国語書面ラベルは挿入しない (corpus 慣行)。ただし parent が
+                # 外国語書面出願の場合、その旨を別途記載すべきケースは個別
+                # 分析の対象とする (FB が出たら拡張)。
                 text = (f"{HEAD}{to_wareki(filing_date)}にされた特許法４４条１項の規定による"
                         f"特許出願であって、{to_wareki(earliest_filing)}に出願した特願"
                         f"{_format_appno_with_dash(earliest_appno)}号を最先の出願とする、"
