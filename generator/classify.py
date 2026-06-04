@@ -65,11 +65,11 @@ def chain_root_is_pct_national_phase(data: dict[str, Any]) -> bool:
     return False
 
 
-def jpp_root_is_pct_national_phase(data: dict[str, Any]) -> bool:
-    """JPP chain の最後尾（最先 appno）が PCT 国内段階なら True
+def aux_root_is_pct_national_phase(data: dict[str, Any]) -> bool:
+    """親系列 の最後尾（最先 appno）が PCT 国内段階なら True
     （chain_root_is_pct_national_phase のフォールバック）。"""
     appno = data.get("applicationNumber", "") or ""
-    chain = load_jpp_chain(appno)
+    chain = load_aux_chain(appno)
     if not chain:
         return False
     return is_pct_national_phase(chain[-1].get("appno", "") or "")
@@ -183,8 +183,8 @@ def detect_apptype(data: dict[str, Any]) -> str:
     return "D"
 
 
-def load_jpp_chain(appno: str) -> list[dict]:
-    """inventory/jpp_app_info/{appno}.json から chain を返す（JPP「出願情報」由来）。
+def load_aux_chain(appno: str) -> list[dict]:
+    """inventory/aux_appinfo/{appno}.json から chain を返す（補助ソース由来）。
 
     各エントリ: {appno, filing_date, sokyu_date, parent_appno, is_divisional, ...}
     chain[0] = 本願、chain[-1] = 最先の出願。
@@ -192,7 +192,7 @@ def load_jpp_chain(appno: str) -> list[dict]:
     """
     import json as _json
     from pathlib import Path as _Path
-    p = _Path(__file__).resolve().parent.parent / "inventory" / "jpp_app_info" / f"{appno}.json"
+    p = _Path(__file__).resolve().parent.parent / "inventory" / "aux_appinfo" / f"{appno}.json"
     if not p.exists():
         return []
     return _json.loads(p.read_text(encoding="utf-8")).get("chain", [])
@@ -200,18 +200,18 @@ def load_jpp_chain(appno: str) -> list[dict]:
 
 # 後方互換のため別名も残す（旧 API 経由の chain は廃止）
 def load_parent_chain(appno: str) -> list[dict]:
-    """互換 alias: JPP chain を返す。"""
-    return load_jpp_chain(appno)
+    """互換 alias: 親系列 を返す。"""
+    return load_aux_chain(appno)
 
 
 def get_generation(data: dict[str, Any]) -> int:
-    """JPP chain から世代数を取得。本願=0、親1代=1、…。
+    """親系列 から世代数を取得。本願=0、親1代=1、…。
 
-    JPP chain がない場合は 0（=非分割または取得失敗）。フォールバックは設けない
+    親系列 がない場合は 0（=非分割または取得失敗）。フォールバックは設けない
     （ユーザー方針: JPP が取れなければエラーとする）。
     """
     appno = data.get("applicationNumber", "") or ""
-    chain = load_jpp_chain(appno)
+    chain = load_aux_chain(appno)
     if not chain:
         return 0
     return len(chain) - 1
@@ -235,7 +235,7 @@ def detect_pattern(data: dict[str, Any]) -> dict:
     is_div, parent_info = is_divisional(data)
     parent_is_pct = parent_is_pct_national_phase(data) if is_div else False
     chain_root_pct = (
-        chain_root_is_pct_national_phase(data) or jpp_root_is_pct_national_phase(data)
+        chain_root_is_pct_national_phase(data) or aux_root_is_pct_national_phase(data)
     ) if is_div else False
     generation = get_generation(data)
 

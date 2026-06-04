@@ -195,7 +195,7 @@ def generate(
         return GenerateResult(
             text=f"<<参照エラー: 起案日データが取得できませんでした (appno={appno})>>",
             trace=[], pattern="", apptype="", source_used="none",
-            missing_fields=["doc_xmls/", "zenchi_drafting/", "jplatpat_dates/"],
+            missing_fields=["doc_xmls/", "zenchi_drafting/", "aux_dates/"],
         )
 
     # 3. INTRO 生成
@@ -218,9 +218,9 @@ def generate(
     if pattern == "分割_第3世代以降":
         # intro_text の前に「１　出願分割の経緯の概略」を挿入
         parts.insert(1, "１　出願分割の経緯の概略")
-        from .classify import load_jpp_chain
+        from .classify import load_aux_chain
         from .jp_dates import _to_zen, to_wareki
-        chain = load_jpp_chain(appno)
+        chain = load_aux_chain(appno)
         if chain:
             # chain[0] = 本願, chain[-1] = 最先
             earliest = chain[-1]
@@ -290,7 +290,7 @@ def generate(
             rule_id="zenchi_inclusion",
             chosen="出力（書く）",
             reason="開発者ルール準拠（暫定）。本来は上申書本文に前置報告書言及があれば書く",
-            note="上申書本文は API 提供範囲外のため J-PlatPat スクレイピング未実施。今は常に出力",
+            note="上申書本文は API 提供範囲外のため 補助ソース未実施。今は常に出力",
         ))
 
     # 末尾エクスキューズ集の薄文字注記

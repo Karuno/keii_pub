@@ -120,9 +120,9 @@ def generate_intro(data: dict[str, Any]) -> dict:
                     f"{paren}、{TAIL}")
 
     elif pattern == "分割_第2世代":
-        # JPP chain の filing_date は ISO 形式 'YYYY-MM-DD'
-        from .classify import load_jpp_chain
-        chain = load_jpp_chain(data.get("applicationNumber", "") or "")
+        # 親系列 の filing_date は ISO 形式 'YYYY-MM-DD'
+        from .classify import load_aux_chain
+        chain = load_aux_chain(data.get("applicationNumber", "") or "")
         if len(chain) >= 3:
             grandparent = chain[2]
             parent = chain[1]
@@ -152,8 +152,8 @@ def generate_intro(data: dict[str, Any]) -> dict:
     elif pattern == "分割_第3世代以降":
         # 第N世代分割の DIV_BLOCK 構造は keii.py 側で組み立てる。
         # ここでは intro 部分だけ返す。
-        from .classify import load_jpp_chain
-        chain = load_jpp_chain(data.get("applicationNumber", "") or "")
+        from .classify import load_aux_chain
+        chain = load_aux_chain(data.get("applicationNumber", "") or "")
         if chain:
             earliest = chain[-1]
             earliest_appno = earliest.get("appno", "")
@@ -209,12 +209,12 @@ def generate_intro(data: dict[str, Any]) -> dict:
         from .classify import (
             divisional_root_apptype_phrase,
             divisional_terminal_phrase,
-            load_jpp_chain,
+            load_aux_chain,
         )
         parent = data.get("parentApplicationInformation", {}) or {}
         parent_appno = parent.get("parentApplicationNumber", "")
         parent_filing = parent.get("filingDate", "")
-        chain = load_jpp_chain(data.get("applicationNumber", "") or "")
+        chain = load_aux_chain(data.get("applicationNumber", "") or "")
         if len(chain) >= 3:
             earliest = chain[-1]
             earliest_appno = earliest.get("appno", "")

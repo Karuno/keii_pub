@@ -1,7 +1,7 @@
 """fetcher/onboard_appno.py — 1 案件分の inventory を JPO API のみで構築。
 
 オンデマンド fetch 用のオーケストレータ。既存の 04/05/08 のコアロジックを
-1 案件分に圧縮したもの。J-PlatPat 系 (06/10) は含まないため、それらに
+1 案件分に圧縮したもの。補助ソース 系 (06/10) は含まないため、それらに
 依存するパターン (一部の優先権・分割) は未取得情報として扱われる。
 
 公開 API:
@@ -238,6 +238,27 @@ def onboard_appno(appno: str, inventory_dir: Path | str | None = None) -> dict:
     except Exception as e:
         result["status"] = "error"
         result["error"] = f"{type(e).__name__}: {e}"
+
+    # 前置報告書の作成日 (補助ソース 経由)。失敗しても onboard 全体を落とさない。
+    zenchi_p = inv_dir / "zenchi_drafting" / f"{appno}.json"
+    if not zenchi_p.exists():
+        try:
+            import subprocess as _sp
+            import sys as _sys
+            keii_pub_root = Path(__file__).resolve().parent.parent
+            proc = _sp.run(
+                [_sys.executable, str(keii_pub_root / "06_fetch_zenchi_drafting.py"),
+                 "--appno", appno],
+                capture_output=True, text=True, timeout=120,
+                cwd=str(keii_pub_root),
+            )
+            result["zenchi_fetched"] = (proc.returncode == 0 and zenchi_p.exists())
+        except Exception as e:
+            result["zenchi_fetched"] = False
+            result["zenchi_error"] = f"{type(e).__name__}: {e}"
+    else:
+        result["zenchi_fetched"] = True
+
     result["elapsed_sec"] = round(time.time() - t0, 2)
     return result
 

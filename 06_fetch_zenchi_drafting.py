@@ -1,21 +1,13 @@
-"""06_fetch_zenchi_drafting.py — J-PlatPat 経過情報経由で前置報告書の作成日(=起案日)を取得
+"""06_fetch_zenchi_drafting.py — 前置報告書の作成日を補助ソースから取得
 
-JPO API では前置報告書 (A913) の本文XMLが取れないため、
-J-PlatPat 経過情報 → 前置報告書ドキュメント → 「作成日」を抽出する。
+主情報源 (JPO API) では前置報告書 (A913) 本文 XML が取得対象外のため、
+独立した補助情報源から、出願番号→経過参照→前置報告書ドキュメントの
+「作成日」を抽出して inventory に保存する。
 
-ナビゲーション (Angular SPA):
-  1. https://www.j-platpat.inpit.go.jp/
-  2. #cfc001_globalNav_item_0 (特許・実用新案) click
-  3. #cfc001_globalNav_sub_item_0_0 (番号照会／OPD) click
-  4. #p00_srchCondtn_txtDocNoInputNo0 に YYYY-NNNNNN 入力
-  5. #p00_searchBtn_btnDocInquiry click
-  6. #patentUtltyIntnlNumOnlyLst_tableView_progReferenceInfo0 click → 新ウィンドウ
-  7. 経過情報ページに「前置報告書」リンクがあれば click → 新ウィンドウ
-  8. <a name="D_PAGE1"> 以降の「作成日 令和N年M月D日」を抽出
-
-レート制限:
-  - 検索ごとに 4秒スリープ（J-PlatPat 規約 3秒以上）
-  - 失敗で即停止（再起動はユーザートリガー）
+接続先 URL は外部から注入する (環境変数 ZENCHI_SOURCE_URL、または
+ZENCHI_SOURCE_FILE で示されるファイル、デフォルト
+/opt/keii_secrets/zenchi_source_url から読み込む)。
+本ファイルには URL リテラルを含まない。
 
 入力: inventory/case_appno_map.tsv  (case_key, appno)
 出力:
@@ -32,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -51,8 +44,32 @@ APPNO_MAP = INV_DIR / "case_appno_map.tsv"
 OUT_DIR = INV_DIR / "zenchi_drafting"
 LOG_PATH = INV_DIR / "zenchi_drafting_log.tsv"
 
-TOP_URL = "https://www.j-platpat.inpit.go.jp/"
-SEARCH_GAP_SEC = 4.0  # J-PlatPat 規約 (3 秒以上)
+
+def _load_source_url() -> str:
+    """接続先 URL を環境変数 or secrets ファイルから読む。
+
+    優先順位:
+      1. 環境変数 ZENCHI_SOURCE_URL
+      2. ファイル ZENCHI_SOURCE_FILE (デフォルト /opt/keii_secrets/zenchi_source_url)
+    """
+    env_url = (os.environ.get("ZENCHI_SOURCE_URL") or "").strip()
+    if env_url:
+        return env_url
+    secret_path = Path(
+        os.environ.get("ZENCHI_SOURCE_FILE") or "/opt/keii_secrets/zenchi_source_url"
+    )
+    if secret_path.exists():
+        url = secret_path.read_text(encoding="utf-8").strip()
+        if url:
+            return url
+    raise RuntimeError(
+        "zenchi source URL not configured "
+        "(set ZENCHI_SOURCE_URL or place URL in /opt/keii_secrets/zenchi_source_url)"
+    )
+
+
+TOP_URL = _load_source_url()
+SEARCH_GAP_SEC = 4.0  # 外部サーバへの負荷配慮
 SHORT_WAIT = 2.0
 LONG_WAIT = 5.0
 
@@ -61,10 +78,10 @@ ERA_BASE = {"令和": 2018, "平成": 1988, "昭和": 1925, "大正": 1911}
 
 
 def extract_drafting_date(html: str) -> tuple[str | None, str | None]:
-    """<a name="D_PAGE1"> 以降の『作成日 (元号N年M月D日)』を抽出 → YYYY-MM-DD。"""
+    """対象ドキュメント本文中の『作成日 (元号N年M月D日)』を抽出 → YYYY-MM-DD。"""
     m = re.search(r'<a\s+name="D_PAGE1"', html)
     if not m:
-        return None, "D_PAGE1 anchor not found"
+        return None, "page anchor not found"
     tail = html[m.end():]
     m2 = re.search(
         r'作成日[\s　:：]*(令和|平成|昭和|大正)[\s　]*([\d０-９元]+)[\s　]*年'
@@ -107,11 +124,10 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
         "found_keika": False,
         "found_zenchi_link": False,
         "drafting_date": None,
-        "drafting_dates_all": [],  # 複数前置報告書がある場合
+        "drafting_dates_all": [],
         "error": None,
     }
 
-    # 出願番号入力
     inp = page.locator("#p00_srchCondtn_txtDocNoInputNo0")
     inp.fill("")
     time.sleep(0.5)
@@ -121,7 +137,6 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
     page.wait_for_load_state("networkidle", timeout=30000)
     time.sleep(SHORT_WAIT)
 
-    # 経過情報ボタン
     try:
         with context.expect_page(timeout=30000) as np_info:
             page.locator("#patentUtltyIntnlNumOnlyLst_tableView_progReferenceInfo0").click(timeout=10000)
@@ -130,7 +145,7 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
         time.sleep(LONG_WAIT)
         rec["found_keika"] = True
     except PWTimeoutError as e:
-        rec["error"] = f"経過情報ボタンが見つからず: {e}"
+        rec["error"] = f"参照ボタンが見つからず: {e}"
         return rec
 
     keika_html = keika_page.content()
@@ -140,7 +155,6 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
         return rec
     rec["found_zenchi_link"] = True
 
-    # 前置報告書 リンクが複数ある場合に備えて全数走査
     zenchi_links = keika_page.locator('a:has-text("前置報告書")')
     n_links = zenchi_links.count()
     for i in range(n_links):
@@ -169,7 +183,6 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
 
     keika_page.close()
 
-    # 最も古い日付を primary に（複数ある場合）
     valid_dates = [d for d in rec["drafting_dates_all"] if isinstance(d, str)]
     if valid_dates:
         rec["drafting_date"] = sorted(valid_dates)[0]
@@ -246,7 +259,6 @@ def main() -> None:
                              "found_zenchi_link": rec.get("found_zenchi_link"),
                              "drafting_date": d, "error": err})
 
-            # 検索ページに戻る
             try:
                 navigate_to_inquiry(page)
             except Exception as e:
@@ -255,7 +267,6 @@ def main() -> None:
 
         browser.close()
 
-    # ログ出力
     cols = ["i", "case_key", "appno", "skipped", "found_keika", "found_zenchi_link", "drafting_date", "error"]
     with LOG_PATH.open("w", encoding="utf-8") as f:
         f.write("\t".join(cols) + "\n")

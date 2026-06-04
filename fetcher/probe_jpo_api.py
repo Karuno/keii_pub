@@ -109,7 +109,7 @@ def main():
     # ---- 既知のエンドポイント ----
     known_endpoints = {
         "app_progress": f"app_progress/{APP}",
-        "jpp_fixed_address": f"jpp_fixed_address/{APP}",
+        "aux_fixed_address": f"aux_fixed_address/{APP}",
     }
 
     # ---- 推定エンドポイント（JPO APIドキュメントから推測）----

@@ -4,16 +4,16 @@
 案件×書類×日付の統一リストを返す。
 
 優先順位:
-  1. Primary（API + 補完 J-PlatPat）
+  1. Primary（API + 補完 補助ソース）
      - inventory/doc_xmls/{appno}/_summary.json
        Type A 書類の drafting-date（拒絶理由通知書/拒絶査定/補正の却下/特許査定）
      - inventory/zenchi_drafting/{appno}.json
-       前置報告書の作成日（J-PlatPat）
+       前置報告書の作成日（補助ソース）
      - inputs/.../doc_history/doc_history.json
        Type B 書類の legalDate、Type C 送達日（A02 legalDate）
   2. Fallback（API 不通時）
-     - inventory/jplatpat_dates/{appno}.json
-       全書類分の起案日／受領日（J-PlatPat スクレイピング）
+     - inventory/aux_dates/{appno}.json
+       全書類分の起案日／受領日（補助ソース）
 
 公開 API:
   get_doc_dates(appno) -> list[DocumentEntry]
@@ -35,9 +35,9 @@ INV_DIR = KEII_PYTHON_ROOT / "inventory"
 DocType = Literal["A", "B", "C"]
 DateSource = Literal[
     "api_xml",            # API XML drafting-date (Type A 主要書類)
-    "jplatpat_zenchi",    # J-PlatPat 前置報告書「作成日」
+    "external_zenchi",    # 補助ソース 前置報告書「作成日」
     "doc_history",        # doc_history.json legalDate (Type B / Type C)
-    "jplatpat_fallback",  # J-PlatPat 経過情報スクレイピング (fallback)
+    "external_fallback",  # 補助ソース (fallback)
 ]
 
 
@@ -64,7 +64,7 @@ TYPE_A_DOCS = {
     "A02":  "拒絶査定",
     "A502": "補正の却下の決定",
     "A03":  "特許査定",
-    "A913": "前置報告書",  # API 提供範囲外、J-PlatPat から取得
+    "A913": "前置報告書",  # API 提供範囲外、補助ソース から取得
     "C13":  "当審拒絶理由通知書",  # 審判段階（前置解除後）
 }
 
@@ -230,7 +230,7 @@ def _from_api_xml_summary(appno: str) -> list[DocumentEntry]:
 
 
 def _from_zenchi_drafting(appno: str) -> list[DocumentEntry]:
-    """前置報告書の J-PlatPat 作成日。"""
+    """前置報告書の 補助ソース 作成日。"""
     p = INV_DIR / "zenchi_drafting" / f"{appno}.json"
     if not p.exists():
         return []
@@ -243,7 +243,7 @@ def _from_zenchi_drafting(appno: str) -> list[DocumentEntry]:
                 code="A913",
                 date_iso=d,
                 doc_type="A",
-                source="jplatpat_zenchi",
+                source="external_zenchi",
                 raw={"original": d},
             ))
     return out
@@ -362,12 +362,12 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
 
 
 # ============================================================================
-# Fallback 経路: J-PlatPat スクレイピング全書類
+# Fallback 経路: 補助ソース全書類
 # ============================================================================
 
-def _from_jplatpat_fallback(appno: str) -> list[DocumentEntry]:
-    """07_fetch_jplatpat_fallback.py の jplatpat_dates/{appno}.json から構築。"""
-    p = INV_DIR / "jplatpat_dates" / f"{appno}.json"
+def _from_external_fallback(appno: str) -> list[DocumentEntry]:
+    """07_fetch_external_fallback.py の aux_dates/{appno}.json から構築。"""
+    p = INV_DIR / "aux_dates" / f"{appno}.json"
     if not p.exists():
         return []
     data = json.loads(p.read_text(encoding="utf-8"))
@@ -384,7 +384,7 @@ def _from_jplatpat_fallback(appno: str) -> list[DocumentEntry]:
                 code="",
                 date_iso=iso,
                 doc_type="A",
-                source="jplatpat_fallback",
+                source="external_fallback",
                 raw=d,
             ))
         elif d.get("is_type_b_target"):
@@ -400,12 +400,12 @@ def _from_jplatpat_fallback(appno: str) -> list[DocumentEntry]:
                 code="",
                 date_iso=iso,
                 doc_type="B",
-                source="jplatpat_fallback",
+                source="external_fallback",
                 raw=d,
             ))
 
     # Type C: A02（拒絶査定）に対応する送達日は、テーブルの拒絶査定 table_date が legalDate と同等
-    # → Type A の jplatpat_fallback から拒絶査定エントリの table_date を引いて Type C エントリを生成
+    # → Type A の external_fallback から拒絶査定エントリの table_date を引いて Type C エントリを生成
     for d in data.get("documents", []):
         if d.get("is_type_a") and "拒絶査定" in d.get("name", ""):
             iso = d.get("table_date")
@@ -415,7 +415,7 @@ def _from_jplatpat_fallback(appno: str) -> list[DocumentEntry]:
                     code="(C)",
                     date_iso=iso,
                     doc_type="C",
-                    source="jplatpat_fallback",
+                    source="external_fallback",
                     raw={"a02_table_date": iso},
                 ))
             break
@@ -423,7 +423,7 @@ def _from_jplatpat_fallback(appno: str) -> list[DocumentEntry]:
 
 
 def _normalize_type_b_name(raw_name: str) -> str | None:
-    """J-PlatPat 表記を Allow-List 名に正規化。方式は除外。"""
+    """補助ソース 表記を Allow-List 名に正規化。方式は除外。"""
     if "意見書" in raw_name:
         return "意見書"
     if "手続補正書" in raw_name:
@@ -470,7 +470,7 @@ def get_doc_dates_with_source(appno: str) -> tuple[list[DocumentEntry], str]:
         return entries, "primary"
 
     # Fallback 経路
-    fallback = _from_jplatpat_fallback(appno)
+    fallback = _from_external_fallback(appno)
     if fallback:
         fallback.sort(key=lambda e: (e.date_iso, {"A": 0, "B": 1, "C": 2}[e.doc_type]))
         fallback = _dedupe_same_day_same_name(fallback)

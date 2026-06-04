@@ -165,7 +165,7 @@ unified diff 形式で生成と corpus の差分が見える。
 ### 3.6 Step 6: 残差を分類
 
 - **①プログラム不足**: 今回の修正対象から漏れた。次のタスクで対応
-- **②情報フィールド不足**: API/J-PlatPat 経路に該当データが無い。取得スクリプト拡張が必要
+- **②情報フィールド不足**: API/補助ソース 経路に該当データが無い。取得スクリプト拡張が必要
 - **③既存フィールドの値欠落**: データソースで値が空。データ品質問題
 - **④起案者裁量例外**: corpus 側の任意性。`inventory/_diff_findings.md §B` に記録して許容
 - **⑤事実ズレ**: corpus と原典が食い違う（コピペミス等）。仕様外として保留
@@ -298,7 +298,7 @@ docx の正本側を更新した場合は corpus も更新すること。
    python3 04_fetch_doc_history.py
    python3 05_fetch_app_docs.py
    python3 08_fetch_parent_chain.py
-   python3 10_fetch_jpp_app_info.py
+   python3 10_fetch_aux_appinfo.py
    python3 06_fetch_zenchi_drafting.py  # 前置報告書がある案件のみ
 
 4. テスト
@@ -320,8 +320,8 @@ docx の正本側を更新した場合は corpus も更新すること。
 │   ├── case_appno_map.tsv         ← テスト対象案件マスタ
 │   ├── doc_history_collected/     ← 各案件の doc_history.json
 │   ├── doc_xmls/                  ← 各案件の庁作成書類 XML
-│   ├── jpp_app_info/              ← 各案件の出願情報（J-PlatPat）
-│   ├── zenchi_drafting/           ← 各案件の前置報告書作成日（J-PlatPat）
+│   ├── aux_appinfo/              ← 各案件の出願情報（補助ソース）
+│   ├── zenchi_drafting/           ← 各案件の前置報告書作成日（補助ソース）
 │   ├── batch_generate/            ← バッチ実行成果
 │   │   ├── _batch_log.tsv         ← 最新サマリ
 │   │   ├── _batch_log_baseline.tsv ← ベースラインサマリ
