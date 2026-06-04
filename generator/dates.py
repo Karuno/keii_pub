@@ -141,6 +141,56 @@ def _xml_body_has_saigo(appno: str, xml_filename: str) -> bool:
     return "最後の" in plain
 
 
+def _inbound_xml_filename(appno_digits: str, document_number: str) -> str | None:
+    """doc_xmls/{appno}/_summary.json から inbound 書類の XML ファイル名を引く。
+
+    summary の inbound エントリ doc_number は「{documentCode}_{documentNumber}」形式。
+    A523 (手続補正書) の補正対象を XML 本文から判定するために使用する。
+    """
+    if not appno_digits or not document_number:
+        return None
+    summary_path = INV_DIR / "doc_xmls" / appno_digits / "_summary.json"
+    if not summary_path.exists():
+        return None
+    try:
+        data = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    target = f"A523_{document_number}"
+    for d in data.get("documents", []):
+        if d.get("endpoint") == "inbound" and d.get("doc_number") == target:
+            return d.get("xml_filename") or None
+    return None
+
+
+def _a523_amends_spec_or_claims(appno_digits: str, document_number: str) -> bool | None:
+    """手続補正書 (A523) が明細書または特許請求の範囲を補正対象に含むか判定する。
+
+    手続補正書 XML の <jp:contents-of-amendment jp:kind-of-document="..."> の値で判定:
+      - "claims"      → 特許請求の範囲の補正
+      - "description" → 明細書の補正
+    上記いずれかを含めば True。審判請求書のみの補正 (appeal-c60) や、
+    その他 (出願人/代理人変更等) のみであれば False。
+
+    返り値:
+      True  → 明細書/特許請求の範囲を補正 (経緯に記載する)
+      False → どちらの補正も含まない (経緯に記載しない)
+      None  → 判定材料なし (inbound XML 不在等。保守的に記載を維持する)
+    """
+    fn = _inbound_xml_filename(appno_digits, document_number)
+    if not fn:
+        return None
+    xml_path = INV_DIR / "doc_xmls" / appno_digits / fn
+    if not xml_path.exists():
+        return None
+    try:
+        text = xml_path.read_bytes().decode("shift_jis", errors="replace")
+    except Exception:
+        return None
+    return ('kind-of-document="claims"' in text
+            or 'kind-of-document="description"' in text)
+
+
 def _from_api_xml_summary(appno: str) -> list[DocumentEntry]:
     """05_fetch_app_docs.py の _summary.json から Type A エントリを構築。
 
@@ -202,7 +252,10 @@ def _from_zenchi_drafting(appno: str) -> list[DocumentEntry]:
 def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
     """doc_history.json から Type B / Type C を構築。"""
     raw = json.loads(p.read_text(encoding="utf-8"))
-    biblio = raw.get("result", {}).get("data", {}).get("bibliographyInformation", []) or []
+    data = raw.get("result", {}).get("data", {})
+    biblio = data.get("bibliographyInformation", []) or []
+    # 手続補正書 (A523) の補正対象を XML から判定するために appno (数字) を取得
+    appno_digits = re.sub(r"\D", "", str(data.get("applicationNumber", "")))
     out: list[DocumentEntry] = []
 
     # 翻訳文の提出日を決定する優先ルール:
@@ -239,6 +292,13 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
             elif code == "A523":
                 if "（方式）" in desc:
                     continue  # 方式は除外
+                # 明細書・特許請求の範囲のどちらの補正も含まない手続補正書
+                # (例: 審判請求書のみの補正) は経緯に記載しない。
+                # 審判請求の前後は無関係で、補正対象そのもので判定する。
+                # 判定材料 (inbound XML) が無い場合は保守的に記載を維持。
+                amends = _a523_amends_spec_or_claims(appno_digits, d.get("documentNumber", ""))
+                if amends is False:
+                    continue
                 name = "手続補正書"
             elif code == "A971015":
                 name = "応対記録"
