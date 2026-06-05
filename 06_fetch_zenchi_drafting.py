@@ -77,25 +77,41 @@ ZEN_TR = str.maketrans("０１２３４５６７８９", "0123456789")
 ERA_BASE = {"令和": 2018, "平成": 1988, "昭和": 1925, "大正": 1911}
 
 
+def _extract_jp_date(tail: str, keywords: tuple[str, ...]) -> tuple[str | None, str | None]:
+    """tail 文字列の先頭付近から、指定キーワード直後の和暦日付を抽出 → YYYY-MM-DD。"""
+    for kw in keywords:
+        pattern = (
+            rf'{kw}[\s　:：]*(令和|平成|昭和|大正)[\s　]*([\d０-９元]+)[\s　]*年'
+            r'[\s　]*([\d０-９]+)[\s　]*月[\s　]*([\d０-９]+)[\s　]*日'
+        )
+        m2 = re.search(pattern, tail[:5000])
+        if not m2:
+            continue
+        era, y_raw, m_raw, d_raw = m2.group(1), m2.group(2), m2.group(3), m2.group(4)
+        y_raw = y_raw.translate(ZEN_TR).replace("元", "1")
+        m_raw = m_raw.translate(ZEN_TR)
+        d_raw = d_raw.translate(ZEN_TR)
+        year = ERA_BASE[era] + int(y_raw)
+        return f"{year:04d}-{int(m_raw):02d}-{int(d_raw):02d}", None
+    return None, f"{'/'.join(keywords)} pattern not found"
+
+
 def extract_drafting_date(html: str) -> tuple[str | None, str | None]:
     """対象ドキュメント本文中の『作成日 (元号N年M月D日)』を抽出 → YYYY-MM-DD。"""
     m = re.search(r'<a\s+name="D_PAGE1"', html)
     if not m:
         return None, "page anchor not found"
-    tail = html[m.end():]
-    m2 = re.search(
-        r'作成日[\s　:：]*(令和|平成|昭和|大正)[\s　]*([\d０-９元]+)[\s　]*年'
-        r'[\s　]*([\d０-９]+)[\s　]*月[\s　]*([\d０-９]+)[\s　]*日',
-        tail[:5000]
-    )
-    if not m2:
-        return None, "作成日 pattern not found"
-    era, y_raw, m_raw, d_raw = m2.group(1), m2.group(2), m2.group(3), m2.group(4)
-    y_raw = y_raw.translate(ZEN_TR).replace("元", "1")
-    m_raw = m_raw.translate(ZEN_TR)
-    d_raw = d_raw.translate(ZEN_TR)
-    year = ERA_BASE[era] + int(y_raw)
-    return f"{year:04d}-{int(m_raw):02d}-{int(d_raw):02d}", None
+    return _extract_jp_date(html[m.end():], ("作成日",))
+
+
+def extract_submission_date(html: str) -> tuple[str | None, str | None]:
+    """提出系ドキュメント本文中の『提出日 (元号N年M月D日)』を抽出 → YYYY-MM-DD。
+
+    取れない場合は『作成日』『日付』もフォールバックで試す。"""
+    m = re.search(r'<a\s+name="D_PAGE1"', html)
+    if not m:
+        return None, "page anchor not found"
+    return _extract_jp_date(html[m.end():], ("提出日", "作成日", "日付"))
 
 
 def appno_hyphenated(appno_10: str) -> str:
@@ -117,14 +133,16 @@ def navigate_to_inquiry(page: Page) -> None:
 
 
 def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
-    """1 案件分の取得。"""
+    """1 案件分の取得。前置報告書 + 誤訳訂正書 を同一ページから収集。"""
     rec: dict = {
         "appno": appno,
         "appno_input": appno_hyphenated(appno),
         "found_keika": False,
         "found_zenchi_link": False,
+        "found_errata_link": False,
         "drafting_date": None,
         "drafting_dates_all": [],
+        "errata_dates_all": [],
         "error": None,
     }
 
@@ -149,37 +167,49 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
         return rec
 
     keika_html = keika_page.content()
-    if "前置報告書" not in keika_html:
-        keika_page.close()
-        rec["error"] = "前置報告書 not in keika"
-        return rec
-    rec["found_zenchi_link"] = True
+    has_zenchi = "前置報告書" in keika_html
+    has_errata = "誤訳訂正書" in keika_html
 
-    zenchi_links = keika_page.locator('a:has-text("前置報告書")')
-    n_links = zenchi_links.count()
-    for i in range(n_links):
-        try:
-            with context.expect_page(timeout=30000) as np2_info:
-                zenchi_links.nth(i).click(timeout=10000)
-            doc_page = np2_info.value
-            doc_page.wait_for_load_state("networkidle", timeout=60000)
+    if not has_zenchi and not has_errata:
+        keika_page.close()
+        rec["error"] = "前置報告書 not in keika"  # 既存呼び出し側互換
+        return rec
+
+    def _harvest(link_label: str, dates_bucket: list,
+                 extractor) -> None:
+        links = keika_page.locator(f'a:has-text("{link_label}")')
+        n = links.count()
+        for i in range(n):
             try:
-                doc_page.wait_for_function(
-                    "document.body && document.body.innerHTML.includes('D_PAGE1')",
-                    timeout=30000,
-                )
-            except PWTimeoutError:
-                pass
-            time.sleep(SHORT_WAIT)
-            html = doc_page.content()
-            date, err = extract_drafting_date(html)
-            if date:
-                rec["drafting_dates_all"].append(date)
-            else:
-                rec["drafting_dates_all"].append({"error": err})
-            doc_page.close()
-        except Exception as e:
-            rec["drafting_dates_all"].append({"error": str(e)[:100]})
+                with context.expect_page(timeout=30000) as np2_info:
+                    links.nth(i).click(timeout=10000)
+                doc_page = np2_info.value
+                doc_page.wait_for_load_state("networkidle", timeout=60000)
+                try:
+                    doc_page.wait_for_function(
+                        "document.body && document.body.innerHTML.includes('D_PAGE1')",
+                        timeout=30000,
+                    )
+                except PWTimeoutError:
+                    pass
+                time.sleep(SHORT_WAIT)
+                html = doc_page.content()
+                date, err = extractor(html)
+                if date:
+                    dates_bucket.append(date)
+                else:
+                    dates_bucket.append({"error": err})
+                doc_page.close()
+            except Exception as e:
+                dates_bucket.append({"error": str(e)[:100]})
+
+    if has_zenchi:
+        rec["found_zenchi_link"] = True
+        _harvest("前置報告書", rec["drafting_dates_all"], extract_drafting_date)
+
+    if has_errata:
+        rec["found_errata_link"] = True
+        _harvest("誤訳訂正書", rec["errata_dates_all"], extract_submission_date)
 
     keika_page.close()
 
