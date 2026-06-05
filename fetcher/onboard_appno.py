@@ -259,6 +259,31 @@ def onboard_appno(appno: str, inventory_dir: Path | str | None = None) -> dict:
     else:
         result["zenchi_fetched"] = True
 
+    # 06 の結果で「誤訳訂正書あり」フラグが立っていれば、補助ソース全書類取得
+    # スクリプト (07) を呼び出して fallback 経路でも書類日付を確保しておく。
+    # dates.py の get_doc_dates_with_source が誤訳訂正書のみ補完に使う。
+    try:
+        if zenchi_p.exists():
+            import json as _json
+            zd = _json.loads(zenchi_p.read_text(encoding="utf-8"))
+            if zd.get("found_errata_link"):
+                aux_p = inv_dir / "aux_dates" / f"{appno}.json"
+                if not aux_p.exists():
+                    import subprocess as _sp
+                    import sys as _sys
+                    keii_pub_root = Path(__file__).resolve().parent.parent
+                    proc = _sp.run(
+                        [_sys.executable, str(keii_pub_root / "07_fetch_aux_fallback.py"),
+                         "--appno", appno],
+                        capture_output=True, text=True, timeout=180,
+                        cwd=str(keii_pub_root),
+                    )
+                    result["aux_fetched"] = (proc.returncode == 0 and aux_p.exists())
+                else:
+                    result["aux_fetched"] = True
+    except Exception as e:
+        result["aux_error"] = f"{type(e).__name__}: {e}"
+
     result["elapsed_sec"] = round(time.time() - t0, 2)
     return result
 

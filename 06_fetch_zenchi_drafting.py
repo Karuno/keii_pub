@@ -96,6 +96,19 @@ def _extract_jp_date(tail: str, keywords: tuple[str, ...]) -> tuple[str | None, 
     return None, f"{'/'.join(keywords)} pattern not found"
 
 
+def _slash_date_to_iso(text: str) -> str | None:
+    """'2022/05/13' → '2022-05-13'。フォーマット不一致なら None。"""
+    text = (text or "").strip()
+    parts = text.split("/")
+    if len(parts) != 3:
+        return None
+    try:
+        y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+        return f"{y:04d}-{m:02d}-{d:02d}"
+    except Exception:
+        return None
+
+
 def extract_drafting_date(html: str) -> tuple[str | None, str | None]:
     """対象ドキュメント本文中の『作成日 (元号N年M月D日)』を抽出 → YYYY-MM-DD。"""
     m = re.search(r'<a\s+name="D_PAGE1"', html)
@@ -208,8 +221,9 @@ def fetch_zenchi_for(context: BrowserContext, page: Page, appno: str) -> dict:
         _harvest("前置報告書", rec["drafting_dates_all"], extract_drafting_date)
 
     if has_errata:
+        # 誤訳訂正書の日付取得は補助ソース全書類取得スクリプト (07) に委ねる。
+        # ここではフラグのみ立てて、onboard 経路がそれを見て 07 を起動する。
         rec["found_errata_link"] = True
-        _harvest("誤訳訂正書", rec["errata_dates_all"], extract_submission_date)
 
     keika_page.close()
 

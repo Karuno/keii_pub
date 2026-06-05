@@ -462,10 +462,14 @@ def get_doc_dates_with_source(appno: str) -> tuple[list[DocumentEntry], str]:
     # primary が成立する条件: API summary もしくは doc_history のいずれかが存在
     if summary or history:
         entries = summary + zenchi + history
+        # primary に「誤訳訂正書」が含まれない場合、fallback (補助ソース全書類) から
+        # 誤訳訂正書のエントリのみ補完する (API/XML には誤訳訂正書が出ないため)。
+        if not any(e.name == "誤訳訂正書" for e in entries):
+            for e in _from_external_fallback(appno):
+                if e.name == "誤訳訂正書":
+                    entries.append(e)
         # 日付昇順ソート（同日内は doc_type A→B→C 安定）
         entries.sort(key=lambda e: (e.date_iso, {"A": 0, "B": 1, "C": 2}[e.doc_type]))
-        # 同日・同タイプ・同名は dedupe (PCT 国内移行時に A632 が複数書類セット
-        # として登録されるが、起案上は「翻訳文の提出」1 行にまとめる慣行)
         entries = _dedupe_same_day_same_name(entries)
         return entries, "primary"
 
