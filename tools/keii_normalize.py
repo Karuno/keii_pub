@@ -389,6 +389,31 @@ def _expand_dates_full(text: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# 「（最後）」「（最初）」「（前置審査、最後）」付記の両側削除
+# ----------------------------------------------------------------------------
+
+# Lievito は規範通り付与、公報側は流儀差で省略するケースを吸収.
+# 拒絶理由通知書の修飾子（括弧内）を両側で削除して比較する.
+_SAIGO_RE = re.compile(r"（[^）]*(?:最後|最初|前置審査)[^）]*）")
+
+def _drop_saigo_marker(text: str) -> str:
+    return _SAIGO_RE.sub("", text)
+
+
+# ----------------------------------------------------------------------------
+# 非対称正規化: 公報側基準で行ごとに削除を決める
+# ----------------------------------------------------------------------------
+
+def _drop_lines_containing(text: str, marker: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if marker in line:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+# ----------------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------------
 
@@ -426,8 +451,29 @@ def normalize_for_compare(text: str) -> str:
     text = _absorb_head_sub_num(text)
     text = _expand_dates_full(text)
     text = _absorb_date_padding(text)
+    text = _drop_saigo_marker(text)
     text = _absorb_a_whitespace(text)
     return text
+
+
+def normalize_pair(gen: str, act: str) -> tuple[str, str]:
+    """非対称正規化: 公報側 (act) の有無で行削除を判定する.
+
+    重要書類 (送達日、当審拒絶理由通知書) は「公報側にあれば残して比較、なければ両側削除」とする.
+    送達日は査定との日付整合性チェックとして重要だが、公報側で省略される案件も多いため.
+    """
+    gen = normalize_for_compare(gen)
+    act = normalize_for_compare(act)
+
+    # 送達日行: 公報側になければ両側削除
+    if "原査定の謄本の送達" not in act:
+        gen = _drop_lines_containing(gen, "原査定の謄本の送達")
+
+    # 当審拒絶理由通知書行: 公報側になければ両側削除
+    if "当審拒絶理由通知書" not in act:
+        gen = _drop_lines_containing(gen, "当審拒絶理由通知書")
+
+    return gen, act
 
 
 # ----------------------------------------------------------------------------

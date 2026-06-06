@@ -23,7 +23,7 @@ REPO_ROOT = HERE
 sys.path.insert(0, str(REPO_ROOT))
 
 from generator.keii import generate  # noqa: E402
-from tools.keii_normalize import normalize_for_compare  # noqa: E402
+from tools.keii_normalize import normalize_for_compare, normalize_pair  # noqa: E402
 
 INV_DIR = HERE / "inventory"
 APPNO_MAP = INV_DIR / "case_appno_map.tsv"
@@ -115,9 +115,8 @@ def main() -> None:
             print(f"  {case_key:15s} corpus not found")
             continue
 
-        # 正規化して比較
-        gen_norm = normalize(gen_text)
-        act_norm = normalize(corpus_text)
+        # 正規化して比較 (非対称: 公報側 act 基準で送達日・当審拒理の片側削除を判定)
+        gen_norm, act_norm = normalize_pair(gen_text, corpus_text)
         stats = diff_stats(gen_norm, act_norm)
 
         # diff レポート保存
