@@ -300,15 +300,17 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
     appno_digits = re.sub(r"\D", "", str(data.get("applicationNumber", "")))
     out: list[DocumentEntry] = []
 
-    # 翻訳文の提出日を決定する優先ルール:
-    #   A634 (国際出願翻訳文提出書セット) を最優先 (外国語PCT)
-    #   A631 (翻訳文提出書、外国語書面出願系) を次に
-    #   A632 (国内書面) は日本語PCT (intl有 + nat_pub無) では除外し, それ以外で採用
-    #     (日本語PCT は翻訳文不要 (184条の6) のため起案者は書かない.
-    #      外国語PCTでは A634 が標準だが, A634 不在で A632 のみのケースの fallback として A632 を採用.)
+    # 翻訳文/国内書面の提出日決定ルール (一次情報根拠):
+    #   日本語PCT (intl有 + nat_pub無, 184条の6) → A632 を完全省略 (翻訳文不要・起案者多数派が省略)
+    #   外国語PCT (intl有 + nat_pub有, 184条の4) → 翻訳文必須:
+    #     A634 と A632 が同日 → 「翻訳文の提出」1行 (A634 採用、A632 同日は吸収)
+    #     A634 と A632 が別日 → 「翻訳文の提出」+「国内書面の提出」両行 (PCT 国内移行で別出のケース)
+    #     A634 不在で A632 のみ → 「翻訳文の提出」(A632 を翻訳文として fallback 採用)
+    #   外国語書面出願 (36条の2) → A631 を翻訳文として採用
     intl_appno = data.get("internationalApplicationNumber", "") or ""
     nat_pub = data.get("nationalPublicationNumber", "") or ""
     is_japanese_pct = bool(intl_appno and not nat_pub)
+    is_foreign_pct = bool(intl_appno and nat_pub)
 
     a634_dates: set[str] = set()
     a631_dates: set[str] = set()
@@ -326,6 +328,11 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
             elif code == "A632" and not is_japanese_pct:
                 a632_dates.add(legal)
     translation_dates = a634_dates or a631_dates or a632_dates
+
+    # 外国語PCT で A634 と A632 が別日のケース: A632 を「国内書面の提出」として独立行で記載
+    kokunaisho_separate_dates: set[str] = set()
+    if is_foreign_pct and a634_dates:
+        kokunaisho_separate_dates = a632_dates - a634_dates
 
     # Type B
     seen_translation_dates: set[str] = set()
@@ -363,9 +370,8 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 name = "審判請求書"
             elif code == "A781":
                 name = "上申書"
-            elif code == "A632" and is_japanese_pct:
-                # 日本語PCT の A632 は「国内書面の提出」と表記 (特許法184条の6で翻訳文不要).
-                # history-rules.md §2.2 注記: 「PCT日本語出願の場合は『国内書面の提出』とする」
+            elif code == "A632" and legal in kokunaisho_separate_dates:
+                # 外国語PCT で A634 と別日の A632 は「国内書面の提出」として独立行で記載
                 if legal in seen_kokunaisho_dates:
                     continue
                 seen_kokunaisho_dates.add(legal)
