@@ -114,17 +114,26 @@ def _absorb_b2_toshita(text: str) -> str:
 # Lievito: 「特願２０２０－００６５９９号」 (ゼロ埋め)
 # 正規化 : 「特願YYYY－(空白混在の数字列)号」 → 数字のみ抽出してゼロ埋め6桁
 _APPNO_RE = re.compile(
-    r"特願(?P<y>[０-９0-9]{4})[－‐−\-][\s　０-９0-9]{1,7}号"
+    r"特願(?P<y>[０-９0-9]{4})[－‐−\-][\s　０-９0-9]{1,15}号"
 )
+
+_HAN_TO_ZEN = str.maketrans("0123456789", "０１２３４５６７８９")
+_ZEN_TO_HAN = str.maketrans("０１２３４５６７８９", "0123456789")
+
 
 def _absorb_c4_appno(text: str) -> str:
     def repl(m):
-        y = m.group("y")
-        # 数字のみ抽出
-        digits = re.sub(r"[^０-９0-9]", "", m.group(0).split("－" if "－" in m.group(0) else "-")[1])
-        # 7桁にゼロ埋め (連番部最大7桁が一般)
-        digits = digits.zfill(6)
-        return f"特願{y}－{digits}号"
+        y = m.group("y").translate(_HAN_TO_ZEN)  # 年部分も全角統一
+        # ハイフン (4種類) 以降の数字列を抽出
+        parts = re.split(r"[－‐−\-]", m.group(0), maxsplit=1)
+        if len(parts) < 2:
+            return m.group(0)
+        # 全角に統一 → 半角化してパディング → 全角に戻す
+        digits = re.sub(r"[^０-９0-9]", "", parts[1])
+        digits_hankaku = digits.translate(_ZEN_TO_HAN)
+        digits_padded = digits_hankaku.zfill(6)
+        digits_zen = digits_padded.translate(_HAN_TO_ZEN)
+        return f"特願{y}－{digits_zen}号"
     return _APPNO_RE.sub(repl, text)
 
 
