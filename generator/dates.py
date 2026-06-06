@@ -146,23 +146,38 @@ def _yyyymmdd_to_iso(s: str) -> str | None:
     return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
 
 
-def _xml_body_has_saigo(appno: str, xml_filename: str) -> bool:
-    """XML 全文から「最後の」を検索（body_excerpt 500字制限の補正）。"""
+def _xml_body_plain(appno: str, xml_filename: str) -> str | None:
+    """XML の <jp:drafting-body> をタグ剥がしして返す (失敗時 None)."""
     if not xml_filename:
-        return False
+        return None
     xml_path = INV_DIR / "doc_xmls" / appno / xml_filename
     if not xml_path.exists():
-        return False
+        return None
     try:
         text = xml_path.read_bytes().decode("shift_jis", errors="replace")
     except Exception:
-        return False
-    # drafting-body 内に絞る
+        return None
     import re as _re
     m = _re.search(r"<jp:drafting-body>(.*?)</jp:drafting-body>", text, _re.S)
     body = m.group(1) if m else text
-    plain = _re.sub(r"<[^>]+>", " ", body)
-    return "最後の" in plain
+    return _re.sub(r"<[^>]+>", " ", body)
+
+
+def _xml_body_has_saigo(appno: str, xml_filename: str) -> bool:
+    """XML 全文から「最後の」を検索（body_excerpt 500字制限の補正）。"""
+    plain = _xml_body_plain(appno, xml_filename)
+    return plain is not None and "最後の" in plain
+
+
+def _xml_body_has_fifty_no_2(appno: str, xml_filename: str) -> bool:
+    """XML 全文から「特許法五十条の２」「特許法第５０条の２」等の50条の2通知記載を検出.
+
+    公報経緯では「（特許法５０条の２の通知を伴う。）」が拒絶理由通知書の付記として現れる.
+    """
+    plain = _xml_body_plain(appno, xml_filename)
+    if plain is None:
+        return False
+    return bool(re.search(r"(特許法[第]?[５5]０条の[２2])|(特許法[第]?五[十〇]条の二)", plain))
 
 
 def _inbound_xml_filename(appno_digits: str, document_number: str) -> str | None:
@@ -238,10 +253,13 @@ def _from_api_xml_summary(appno: str) -> list[DocumentEntry]:
         if not is_type_a_by_name(name):
             continue
         body_has_saigo = False
+        body_has_fifty_no_2 = False
         if "拒絶理由通知書" in name:
             body_has_saigo = _xml_body_has_saigo(appno, d.get("xml_filename", ""))
+            body_has_fifty_no_2 = _xml_body_has_fifty_no_2(appno, d.get("xml_filename", ""))
         raw = dict(d)
         raw["_body_has_saigo"] = body_has_saigo
+        raw["_body_has_fifty_no_2"] = body_has_fifty_no_2
         out.append(DocumentEntry(
             name=name,
             code="",

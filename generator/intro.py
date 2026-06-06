@@ -74,8 +74,12 @@ def generate_intro(data: dict[str, Any]) -> dict:
 
     elif pattern == "国内優先＋日本語ＰＣＴ":
         prio_str = _format_kokunai_priority_list(kokunai_prios)
-        text = (f"{HEAD}{to_seireki_wareki(intl_filing)}を国際出願日とする日本語特許出願であって"
-                f"（優先権主張　{prio_str}）、{TAIL}")
+        if prio_str:
+            text = (f"{HEAD}{to_seireki_wareki(intl_filing)}を国際出願日とする日本語特許出願であって"
+                    f"（優先権主張　{prio_str}）、{TAIL}")
+        else:
+            # priorityRightInformation が空のまま本枝に入ることがある (detect_pattern の fallback).
+            text = (f"{HEAD}{to_seireki_wareki(intl_filing)}を国際出願日とする日本語特許出願であって、{TAIL}")
 
     elif pattern == "パリ条約優先権":
         prio_str = _format_paris_priority_list(paris_prios)
@@ -83,8 +87,11 @@ def generate_intro(data: dict[str, Any]) -> dict:
 
     elif pattern == "パリ条約優先＋ＰＣＴ":
         prio_str = _format_paris_priority_list(paris_prios)
-        text = (f"{HEAD}{to_seireki_wareki(intl_filing)}（パリ条約による優先権主張外国庁受理"
-                f"{prio_str}）を国際出願日とする外国語特許出願であって、{TAIL}")
+        if prio_str:
+            text = (f"{HEAD}{to_seireki_wareki(intl_filing)}（パリ条約による優先権主張外国庁受理"
+                    f"{prio_str}）を国際出願日とする外国語特許出願であって、{TAIL}")
+        else:
+            text = (f"{HEAD}{to_seireki_wareki(intl_filing)}を国際出願日とする外国語特許出願であって、{TAIL}")
 
     elif pattern == "パリ条約優先＋外国語書面出願":
         prio_str = _format_paris_priority_list(paris_prios)

@@ -344,6 +344,10 @@ def render_chronology(entries: list[DocumentEntry]) -> list[ChronoLine]:
                 doc_name = "拒絶査定（以下「原査定」という。）"
             line = _render_type_a(date_text, doc_name)
             out.append(ChronoLine(date_iso, "A", line, group))
+            # 拒絶理由通知書 (50条の2通知付記) を別行で追加
+            if "拒絶理由通知書" in e.name and (e.raw or {}).get("_body_has_fifty_no_2"):
+                note_line = "　　　　　　　　　（特許法５０条の２の通知を伴う。）"
+                out.append(ChronoLine(date_iso, "A", note_line, group))
         elif doc_type == "B":
             names = [e.name for e in group]
             line = _render_type_b(date_text, names)
