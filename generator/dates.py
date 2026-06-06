@@ -60,21 +60,45 @@ class DocumentEntry:
 # Allow-List（doc_history.json documentDescription / 起案上の名称 マッチ用）
 TYPE_A_DOCS = {
     # documentCode → 起案上の名称
-    "A131": "拒絶理由通知書",
+    # ★ 仕様書 (特許情報標準データ 4-01/4-18) と JPO API 実観測の突合は
+    #   docs/doc_code_mapping.md を参照。新規 FB で未知のコードに遭遇しないよう
+    #   仕様書定義と実 API 観測の両方を網羅する。
+    "A01":  "特許査定",                # 仕様書 4-01 (実 API で観測)
     "A02":  "拒絶査定",
-    "A502": "補正の却下の決定",
-    "A03":  "特許査定",
-    "A913": "前置報告書",  # API 提供範囲外、補助ソース から取得
-    "C13":  "当審拒絶理由通知書",  # 審判段階（前置解除後）
+    "A03":  "特許査定",                # 旧来からの Lievito 認識。維持
+    "A131": "拒絶理由通知書",
+    "A132": "拒絶理由通知書",          # 仕様書 4-01 派生 (実 API 未観測、防御的)
+    "A133": "拒絶理由通知書",          # 同上
+    "A191": "補正の却下の決定",        # 仕様書 4-01 (実 API で観測)
+    "A192": "補正の却下の決定",        # 同上派生 (実 API 未観測、防御的)
+    "A502": "補正の却下の決定",        # 旧来からの Lievito 認識。維持
+    "A913": "前置報告書",              # ★ 補助ソース取得が必要な理由:
+                                       #   JPO API は A913 のレコード自体は返すが、
+                                       #   その legalDate は「発送日」であり、
+                                       #   起案上必要なのは前置報告書本文の「作成日」(= 起案日)。
+                                       #   作成日は API 本文配信対象外のため、
+                                       #   J-PlatPat 経過情報の前置報告書本文から抽出する。
+                                       #   詳細: _from_zenchi_drafting() および
+                                       #   06_fetch_zenchi_drafting.py
+    "C13":  "当審拒絶理由通知書",      # 審判段階（前置解除後）
+    "C30":  "面接記録",                # 仕様書 4-01 / 実 API で観測
+    "C302": "応対記録",                # 仕様書 4-18 (審判段階) / 実 API で観測
 }
 
 TYPE_B_DOCS = {
-    "A632":   "翻訳文",  # ※ 国内書面の場合は A621。chronology で「の提出」を付与
-    "A53":    "意見書",
-    "A523":   "手続補正書",   # （方式）は除外
+    # documentCode → 起案上の名称 (chronology で「の提出」を付与)
+    # ★ 仕様書突合の根拠と網羅性については docs/doc_code_mapping.md を参照。
+    "A53":     "意見書",
+    "A521":    "手続補正書",   # 仕様書 4-01 派生 (実 API 未観測、防御的)
+    "A522":    "手続補正書",   # 同上
+    "A523":    "手続補正書",   # （方式）は除外
+    "A524":    "誤訳訂正書",   # 仕様書 4-01 / 実 API で観測
+    "A631":    "翻訳文",       # 仕様書 4-01 翻訳文提出書 (PCT 派生)
+    "A632":    "翻訳文",       # 仕様書 4-01 「国内書面」(経緯上は翻訳文表記で扱う)
+    "A634":    "翻訳文",       # 仕様書 4-01 「国際出願翻訳文提出書」
+    "A781":    "上申書",
     "A971015": "応対記録",
-    "C60":    "審判請求書",
-    "A781":   "上申書",
+    "C60":     "審判請求書",
 }
 
 # 生成器が出力する書類タイプ判定（書類名キーワード）
@@ -286,10 +310,10 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
             iso = _yyyymmdd_to_iso(legal)
             if not iso:
                 continue
-            # Allow-list 判定
+            # Allow-list 判定 (詳細な突合表: docs/doc_code_mapping.md)
             if code == "A53":
                 name = "意見書"
-            elif code == "A523":
+            elif code in ("A521", "A522", "A523"):
                 if "（方式）" in desc:
                     continue  # 方式は除外
                 # 明細書・特許請求の範囲のどちらの補正も含まない手続補正書
@@ -300,13 +324,15 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 if amends is False:
                     continue
                 name = "手続補正書"
+            elif code == "A524":
+                name = "誤訳訂正書"
             elif code == "A971015":
                 name = "応対記録"
             elif code == "C60":
                 name = "審判請求書"
             elif code == "A781":
                 name = "上申書"
-            elif code in ("A632", "A634"):
+            elif code in ("A631", "A632", "A634"):
                 # 翻訳文提出: 採用対象の日付のみ (重複は 1 件)
                 if legal not in translation_dates:
                     continue
