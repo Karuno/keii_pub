@@ -283,6 +283,14 @@ def _absorb_kyozetsu_riyu_sho(text: str) -> str:
     return _KYOZETSU_NO_SHO_RE.sub("拒絶理由通知書", text)
 
 
+# 50条の2の通知付記の形式差吸収 (公報側「特許法５０条の２の通知を伴う拒絶理由通知書」=書類名埋込形式
+# → corpus 基準の「拒絶理由通知書」+別行「（特許法５０条の２の通知を伴う。）」に統一)
+_FIFTY_NO_2_EMBEDDED_RE = re.compile(r"：特許法５０条の２の通知を伴う拒絶理由通知書")
+
+def _normalize_fifty_no_2_format(text: str) -> str:
+    return _FIFTY_NO_2_EMBEDDED_RE.sub("：拒絶理由通知書\n（特許法５０条の２の通知を伴う。）", text)
+
+
 # ----------------------------------------------------------------------------
 # 見出しの「第」プレフィックス無視 (z_kakka 「第１ 手続の経緯」/ z_no_kakka 「１ 手続の経緯」を同視)
 # ----------------------------------------------------------------------------
@@ -490,6 +498,7 @@ def normalize_for_compare(text: str) -> str:
     text = _absorb_c5_same_day_order(text)
     text = _drop_zenchi_report(text)
     text = _absorb_kyozetsu_riyu_sho(text)
+    text = _normalize_fifty_no_2_format(text)
     text = _absorb_b7_oyobi(text)
     text = _absorb_head_dai(text)
     text = _absorb_head_sub_num(text)
