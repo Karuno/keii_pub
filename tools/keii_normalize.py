@@ -246,6 +246,149 @@ def _absorb_a_whitespace(text: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# B-7: 同日結合語「Ａ及びＢ」 ↔ 「Ａ、Ｂ」を同視 (corpus 基準で「、」に統一)
+# ----------------------------------------------------------------------------
+
+# 公報側「意見書及び手続補正書の提出」「Ａ、Ｂ及びＣの提出」 → 「Ａ、Ｂ」「Ａ、Ｂ、Ｃ」
+# corpus 基準 (純正起案 docx) では「、」が多数派のため公報側を統一する.
+_DOC_KW = r"意見書|手続補正書|審判請求書|上申書|誤訳訂正書|応対記録|面接|翻訳文の提出|国内書面の提出"
+_OYOBI_RE = re.compile(rf"({_DOC_KW})及び({_DOC_KW})")
+
+def _absorb_b7_oyobi(text: str) -> str:
+    # 「Ａ及びＢ」を「Ａ、Ｂ」に。連結書類名がさらに連なる場合も反復で吸収
+    prev = None
+    while prev != text:
+        prev = text
+        text = _OYOBI_RE.sub(r"\1、\2", text)
+    return text
+
+
+# ----------------------------------------------------------------------------
+# B-8: 「の特許出願であって」 ↔ 「の出願であって」を同視 (corpus 基準で「の出願」)
+# ----------------------------------------------------------------------------
+
+_B8_RE = re.compile(r"の特許出願であって")
+
+def _absorb_b8_no_shutsugan(text: str) -> str:
+    return _B8_RE.sub("の出願であって", text)
+
+
+# ----------------------------------------------------------------------------
+# 拒絶理由通知書の「書」抜けを修正 (公報側の表記揺れを統一)
+# ----------------------------------------------------------------------------
+
+_KYOZETSU_NO_SHO_RE = re.compile(r"拒絶理由通知(?!書)")
+
+def _absorb_kyozetsu_riyu_sho(text: str) -> str:
+    return _KYOZETSU_NO_SHO_RE.sub("拒絶理由通知書", text)
+
+
+# ----------------------------------------------------------------------------
+# 見出しの「第」プレフィックス無視 (z_kakka 「第１ 手続の経緯」/ z_no_kakka 「１ 手続の経緯」を同視)
+# ----------------------------------------------------------------------------
+
+_HEAD_DAI_RE = re.compile(r"^第([０-９0-9])[\s　]*手続の経緯", re.MULTILINE)
+
+def _absorb_head_dai(text: str) -> str:
+    return _HEAD_DAI_RE.sub(r"\1 手続の経緯", text)
+
+
+# 公報の却下無しZ パターンで「１ 本願は、…」「２ 請求人の主張、…」のサブ見出し番号を除去
+_HEAD_SUB_NUM_RE = re.compile(r"^[０-９0-9][\s　]+(?=本願は、)", re.MULTILINE)
+
+def _absorb_head_sub_num(text: str) -> str:
+    return _HEAD_SUB_NUM_RE.sub("", text)
+
+
+# 日付内のパディング空白「令和X年 ３月 ２４日」「令和X年　３月　２４日」→「令和X年３月２４日」
+_DATE_PADDING_RE = re.compile(r"(年|月)[\s　]+([０-９0-9])")
+
+def _absorb_date_padding(text: str) -> str:
+    prev = None
+    while prev != text:
+        prev = text
+        text = _DATE_PADDING_RE.sub(r"\1\2", text)
+    return text
+
+
+# ----------------------------------------------------------------------------
+# 前置報告書行の両側削除 (corpus 基準では出力規範だが公報側で省略が多いため評価対象外)
+# ----------------------------------------------------------------------------
+
+def _drop_zenchi_report(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if "前置報告書" in line:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+# ----------------------------------------------------------------------------
+# 日付リダクション (同月/同日) を両側でフル展開してから比較
+# ----------------------------------------------------------------------------
+
+# Lievito は直前行と「年同じ→同年、年月同じ→同月、年月日同じ→同日」とリダクションする
+# 公報側はフル表記が多い。両側でフル展開してから比較すると差分が消える.
+_ZEN_DIGIT = str.maketrans("０１２３４５６７８９", "0123456789")
+_HAN_DIGIT = str.maketrans("0123456789", "０１２３４５６７８９")
+_DATE_FULL_RE = re.compile(
+    r"(令和|平成|昭和|令)([０-９0-9元]+)年[\s　]*([０-９0-9]+)月[\s　]*([０-９0-9]+)日"
+)
+_DATE_REDUCED_RE = re.compile(
+    r"同年[\s　]*([０-９0-9]+)月[\s　]*([０-９0-9]+)日|"
+    r"同月[\s　]*([０-９0-9]+)日|"
+    r"同日"
+)
+
+
+def _zen_int(s: str) -> int:
+    return int(s.translate(_ZEN_DIGIT).replace("元", "1"))
+
+
+def _int_to_zen(n: int) -> str:
+    return str(n).translate(_HAN_DIGIT)
+
+
+def _expand_dates_full(text: str) -> str:
+    """直前行のフル日付を引き継いで、同月/同年/同日をフル日付に展開."""
+    lines = text.splitlines()
+    out: list[str] = []
+    last_era = last_year = last_month = last_day = None
+    for line in lines:
+        # 行内の最初のフル日付を捉える
+        m_full = _DATE_FULL_RE.search(line)
+        if m_full:
+            last_era = m_full.group(1)
+            last_year = _zen_int(m_full.group(2))
+            last_month = _zen_int(m_full.group(3))
+            last_day = _zen_int(m_full.group(4))
+            out.append(line)
+            continue
+        # リダクション形式があれば展開
+        if last_era is None:
+            out.append(line)
+            continue
+
+        def replace_reduced(m):
+            nonlocal last_month, last_day
+            if m.group(1) is not None:  # 同年M月D日
+                month = _zen_int(m.group(1))
+                day = _zen_int(m.group(2))
+                last_month, last_day = month, day
+                return f"{last_era}{_int_to_zen(last_year)}年{_int_to_zen(month)}月{_int_to_zen(day)}日"
+            if m.group(3) is not None:  # 同月D日
+                day = _zen_int(m.group(3))
+                last_day = day
+                return f"{last_era}{_int_to_zen(last_year)}年{_int_to_zen(last_month)}月{_int_to_zen(day)}日"
+            # 同日
+            return f"{last_era}{_int_to_zen(last_year)}年{_int_to_zen(last_month)}月{_int_to_zen(last_day)}日"
+        line = _DATE_REDUCED_RE.sub(replace_reduced, line)
+        out.append(line)
+    return "\n".join(out)
+
+
+# ----------------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------------
 
@@ -253,22 +396,36 @@ def normalize_for_compare(text: str) -> str:
     """公報経緯と Lievito 生成経緯の比較用正規化.
 
     順序が重要:
-      1. trim   : 経緯ブロック外の post-経緯 散文・エクスキューズ集 除去
-      2. B-4    : 西暦(和暦) → 和暦 (B-5 の優先日抽出前)
+      1. trim   : 経緯ブロック外の散文・エクスキューズ集 除去
+      2. B-4    : 西暦(和暦) → 和暦
       3. B-3    : 44条1項の規定に基づいて 削除
       4. B-2    : とした特許出願であって → としたものであって
-      5. C-4    : 願番号 空白桁埋め → ゼロ埋め
-      6. B-5    : 優先日定義 抽出して末尾に再配置
-      7. C-5    : 同日順序ソート
-      8. A群    : 空白・改行 (最後に集約)
+      5. B-8    : の特許出願 → の出願 (corpus 基準)
+      6. C-4    : 願番号 空白桁埋め → ゼロ埋め
+      7. B-5    : 優先日定義 削除
+      8. C-5    : 同日順序ソート
+      9. 前置報告書行削除
+     10. 「拒絶理由通知書」書抜け修正
+     11. B-7    : 「Ａ及びＢ」→「Ａ、Ｂ」 (corpus 基準)
+     12. 見出し「第」プレフィックス削除
+     13. 日付リダクション (同月/同年/同日) を両側でフル展開
+     14. A群    : 空白・改行 (最後に集約)
     """
     text = _trim_keii_block(text)
     text = _absorb_b4_seireki(text)
     text = _absorb_b3_law44(text)
     text = _absorb_b2_toshita(text)
+    text = _absorb_b8_no_shutsugan(text)
     text = _absorb_c4_appno(text)
     text = _absorb_b5_prio_def(text)
     text = _absorb_c5_same_day_order(text)
+    text = _drop_zenchi_report(text)
+    text = _absorb_kyozetsu_riyu_sho(text)
+    text = _absorb_b7_oyobi(text)
+    text = _absorb_head_dai(text)
+    text = _absorb_head_sub_num(text)
+    text = _expand_dates_full(text)
+    text = _absorb_date_padding(text)
     text = _absorb_a_whitespace(text)
     return text
 
