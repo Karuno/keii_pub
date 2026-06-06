@@ -301,31 +301,35 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
     out: list[DocumentEntry] = []
 
     # 翻訳文の提出日を決定する優先ルール:
-    #   A634 (国際出願翻訳文提出書セット) があればその日付を採用 (外国語PCT)
-    #   A634 が無く A631 (翻訳文提出書、外国語書面出願系) があれば A631 を採用
-    #   上記が無く A632 で documentDescription に「翻訳文」を含むセットがあれば採用
-    #     (日本語PCT で A632 の desc が「国内書面」のみのときは翻訳文を出さない.
-    #      起案者慣行で翻訳文を書かないため.)
+    #   A634 (国際出願翻訳文提出書セット) を最優先 (外国語PCT)
+    #   A631 (翻訳文提出書、外国語書面出願系) を次に
+    #   A632 (国内書面) は日本語PCT (intl有 + nat_pub無) では除外し, それ以外で採用
+    #     (日本語PCT は翻訳文不要 (184条の6) のため起案者は書かない.
+    #      外国語PCTでは A634 が標準だが, A634 不在で A632 のみのケースの fallback として A632 を採用.)
+    intl_appno = data.get("internationalApplicationNumber", "") or ""
+    nat_pub = data.get("nationalPublicationNumber", "") or ""
+    is_japanese_pct = bool(intl_appno and not nat_pub)
+
     a634_dates: set[str] = set()
     a631_dates: set[str] = set()
-    a632_translation_dates: set[str] = set()
+    a632_dates: set[str] = set()
     for b in biblio:
         for d in b.get("documentList", []) or []:
             code = d.get("documentCode", "")
             legal = d.get("legalDate", "")
-            desc = d.get("documentDescription", "")
             if not legal:
                 continue
             if code == "A634":
                 a634_dates.add(legal)
             elif code == "A631":
                 a631_dates.add(legal)
-            elif code == "A632" and "翻訳文" in desc:
-                a632_translation_dates.add(legal)
-    translation_dates = a634_dates or a631_dates or a632_translation_dates
+            elif code == "A632" and not is_japanese_pct:
+                a632_dates.add(legal)
+    translation_dates = a634_dates or a631_dates or a632_dates
 
     # Type B
     seen_translation_dates: set[str] = set()
+    seen_kokunaisho_dates: set[str] = set()
     for b in biblio:
         for d in b.get("documentList", []) or []:
             code = d.get("documentCode", "")
@@ -359,8 +363,16 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 name = "審判請求書"
             elif code == "A781":
                 name = "上申書"
+            elif code == "A632" and is_japanese_pct:
+                # 日本語PCT の A632 は「国内書面の提出」と表記 (特許法184条の6で翻訳文不要).
+                # history-rules.md §2.2 注記: 「PCT日本語出願の場合は『国内書面の提出』とする」
+                if legal in seen_kokunaisho_dates:
+                    continue
+                seen_kokunaisho_dates.add(legal)
+                name = "国内書面"  # chronology.py が「の提出」を付与
             elif code in ("A631", "A632", "A634"):
                 # 翻訳文提出: 採用対象の日付のみ (重複は 1 件)
+                # 特許法184条の4 (外国語PCT) / 36条の2 (外国語書面出願) で翻訳文提出義務.
                 if legal not in translation_dates:
                     continue
                 if legal in seen_translation_dates:
