@@ -74,22 +74,13 @@ def _sort_and_insert_souutatsu(entries: list[DocumentEntry]) -> list[DocumentEnt
 # ============================================================================
 
 def _filter_joushinsho(entries: list[DocumentEntry]) -> list[DocumentEntry]:
-    """前置報告書より後にある上申書のみ残す（開発者ルール コメント[7]）。"""
-    zenchi_idx = None
-    for i, e in enumerate(entries):
-        if e.name == "前置報告書":
-            zenchi_idx = i
-            break
-    if zenchi_idx is None:
-        # 前置報告書がない場合、上申書はすべて省略
-        return [e for e in entries if e.name != "上申書"]
-    # 前置報告書より前の上申書は除外
-    out: list[DocumentEntry] = []
-    for i, e in enumerate(entries):
-        if e.name == "上申書" and i < zenchi_idx:
-            continue
-        out.append(e)
-    return out
+    """上申書は一律全件出力する.
+
+    旧仕様では「前置報告書より後の上申書のみ残す」だったが、純正corpus でも前置報告書がない案件で
+    上申書を書く例が多数あり、起案者慣行と乖離していたため撤廃.
+    評価機構側 (tools/keii_normalize.py:normalize_pair) で公報側に上申書がない場合は両側削除する.
+    """
+    return entries
 
 
 # ============================================================================

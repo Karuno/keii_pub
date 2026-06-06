@@ -441,6 +441,40 @@ def _absorb_tokugan_paren(text: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# 「手続の経緯の概要」⇔「手続の経緯」 同視
+# ----------------------------------------------------------------------------
+
+_KEII_GAIYO_RE = re.compile(r"手続の経緯の概要")
+
+def _absorb_keii_gaiyo(text: str) -> str:
+    return _KEII_GAIYO_RE.sub("手続の経緯", text)
+
+
+# ----------------------------------------------------------------------------
+# 「面接」⇔「応対記録」 同視 (corpus 基準で「応対記録」)
+# ----------------------------------------------------------------------------
+
+_MENSETSU_RE = re.compile(r"：面接$", re.MULTILINE)
+
+def _absorb_mensetsu(text: str) -> str:
+    return _MENSETSU_RE.sub("：応対記録", text)
+
+
+# ----------------------------------------------------------------------------
+# 元号省略の送達日「（１１月７日：原査定の謄本の送達）」を直前行の元号年で補完
+# ----------------------------------------------------------------------------
+
+# 公報側で稀に「（M月D日：原査定の謄本の送達）」のように年が省略される.
+# _expand_dates_full の前段で「同年M月D日」に補完しておくと展開ロジックに乗る.
+_TOSOTATSU_NO_YEAR_RE = re.compile(
+    r"（[\s　]*([０-９0-9]+)月[\s　]*([０-９0-9]+)日[\s　]*[：:][\s　]*原査定の謄本の送達"
+)
+
+def _absorb_toutatsu_no_year(text: str) -> str:
+    return _TOSOTATSU_NO_YEAR_RE.sub(r"（同年\1月\2日：原査定の謄本の送達", text)
+
+
+# ----------------------------------------------------------------------------
 # 「（最後）」「（最初）」「（前置審査、最後）」付記の両側削除
 # ----------------------------------------------------------------------------
 
@@ -502,6 +536,9 @@ def normalize_for_compare(text: str) -> str:
     text = _absorb_b7_oyobi(text)
     text = _absorb_head_dai(text)
     text = _absorb_head_sub_num(text)
+    text = _absorb_keii_gaiyo(text)
+    text = _absorb_mensetsu(text)
+    text = _absorb_toutatsu_no_year(text)
     text = _expand_dates_full(text)
     text = _absorb_date_padding(text)
     text = _absorb_era_padding(text)
@@ -516,19 +553,23 @@ def normalize_for_compare(text: str) -> str:
 def normalize_pair(gen: str, act: str) -> tuple[str, str]:
     """非対称正規化: 公報側 (act) の有無で行削除を判定する.
 
-    重要書類 (送達日、当審拒絶理由通知書) は「公報側にあれば残して比較、なければ両側削除」とする.
-    送達日は査定との日付整合性チェックとして重要だが、公報側で省略される案件も多いため.
+    重要書類は「公報側にあれば残して比較、なければ両側削除」とする.
+    - 送達日: 査定との日付整合性チェックとして重要だが、公報側で省略される案件も多い
+    - 当審拒絶理由通知書: 同上
+    - 上申書: 同上 (Lievito は全件出力、公報側で省略される案件多数)
+    - 特許法50条の2付記: 同上 (Lievito は出力、公報側で省略される案件あり)
     """
     gen = normalize_for_compare(gen)
     act = normalize_for_compare(act)
 
-    # 送達日行: 公報側になければ両側削除
     if "原査定の謄本の送達" not in act:
         gen = _drop_lines_containing(gen, "原査定の謄本の送達")
-
-    # 当審拒絶理由通知書行: 公報側になければ両側削除
     if "当審拒絶理由通知書" not in act:
         gen = _drop_lines_containing(gen, "当審拒絶理由通知書")
+    if "上申書" not in act:
+        gen = _drop_lines_containing(gen, "上申書")
+    if "特許法５０条の２" not in act:
+        gen = _drop_lines_containing(gen, "特許法５０条の２")
 
     return gen, act
 
