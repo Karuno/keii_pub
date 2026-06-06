@@ -389,6 +389,50 @@ def _expand_dates_full(text: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# 元号と数字間の空白除去 (「令和 ５年」「令和　５年」→「令和５年」)
+# ----------------------------------------------------------------------------
+
+_ERA_PADDING_RE = re.compile(r"(令和|平成|昭和|令)[\s　]+([０-９0-9元])")
+
+def _absorb_era_padding(text: str) -> str:
+    prev = None
+    while prev != text:
+        prev = text
+        text = _ERA_PADDING_RE.sub(r"\1\2", text)
+    return text
+
+
+# ----------------------------------------------------------------------------
+# 「に出願された特願」⇔「に出願した特願」 同視 (corpus 基準で「した」)
+# ----------------------------------------------------------------------------
+
+_SHUSSUGAN_SARETA_RE = re.compile(r"に出願された(特願)")
+
+def _absorb_sareta_shita(text: str) -> str:
+    return _SHUSSUGAN_SARETA_RE.sub(r"に出願した\1", text)
+
+
+# ----------------------------------------------------------------------------
+# 「以下のとおりである」⇔「次のとおりである」 同視 (corpus 基準で「次」)
+# ----------------------------------------------------------------------------
+
+_IGAKA_TSUGI_RE = re.compile(r"以下のとおりである")
+
+def _absorb_iga_tsugi(text: str) -> str:
+    return _IGAKA_TSUGI_RE.sub("次のとおりである", text)
+
+
+# ----------------------------------------------------------------------------
+# 願番号の括弧の有無を同視 (「（特願…号）」⇔「特願…号」)
+# ----------------------------------------------------------------------------
+
+_TOKUGAN_PAREN_RE = re.compile(r"（(特願[０-９0-9]{4}－[０-９0-9]{6}号)）")
+
+def _absorb_tokugan_paren(text: str) -> str:
+    return _TOKUGAN_PAREN_RE.sub(r"\1", text)
+
+
+# ----------------------------------------------------------------------------
 # 「（最後）」「（最初）」「（前置審査、最後）」付記の両側削除
 # ----------------------------------------------------------------------------
 
@@ -451,6 +495,10 @@ def normalize_for_compare(text: str) -> str:
     text = _absorb_head_sub_num(text)
     text = _expand_dates_full(text)
     text = _absorb_date_padding(text)
+    text = _absorb_era_padding(text)
+    text = _absorb_sareta_shita(text)
+    text = _absorb_iga_tsugi(text)
+    text = _absorb_tokugan_paren(text)
     text = _drop_saigo_marker(text)
     text = _absorb_a_whitespace(text)
     return text
