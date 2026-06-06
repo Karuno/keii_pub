@@ -46,6 +46,7 @@ keii_pub/
 ├── 91_generate_intro.py          ← 単体生成（試験用）
 ├── 92_batch_generate.py          ← バッチ生成 + corpus 比較
 ├── 93_diff_categorize.py         ← diff 自動分類
+├── 99_onboard_daily.py           ← 日次 inventory 拡張 (cron 駆動)
 │
 ├── generator/                    ← 生成エンジン本体
 │   ├── classify.py               ← 案件性質分類（11 パターン）
@@ -57,15 +58,20 @@ keii_pub/
 │   ├── api_remain.py             ← JPO API 残量管理
 │   └── settings.py               ← 設定ローダ
 │
+├── tools/                        ← 補助ツール
+│   └── keii_normalize.py         ← 比較用正規化 (A群/B群/C-4/C-5 吸収)
+│
 ├── templates/                    ← 仕様カタログ（人が読む）
 │   ├── keii_model.yaml           ← 全体モデル
 │   └── rules_developer.yaml      ← 11 パターン定義
 │
 ├── fetcher/                      ← JPO API クライアント
-│   └── probe_jpo_api.py
+│   ├── probe_jpo_api.py
+│   └── onboard_appno.py          ← 1 案件分の inventory 構築
 │
 ├── corpus/                       ← 正解集合（.gitignore 済。各自準備）
 └── inventory/                    ← 取得済みデータ（.gitignore 済。fetch で生成）
+    └── z_appno_list.json         ← 公報経緯 Z 審決 appno リスト (99_onboard_daily 入力)
 ```
 
 ---

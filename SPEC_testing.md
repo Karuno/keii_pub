@@ -1,6 +1,6 @@
 # テスト仕様書
 
-最終更新: 2026-05-20
+最終更新: 2026-06-07
 対象: `92_batch_generate.py` + `_compare_A1.py` + `A1_classify_check.py` ほか検証ツール群
 
 ---
@@ -19,35 +19,55 @@
 
 ## 1. テスト全体像
 
-テストは **「実起案コーパス（48 件）との文字列一致率」** を主指標とする回帰テスト方式。
-正解集合は `corpus/` 配下の `.keii.txt` ファイル群。
-これらは確定済み起案 docx から抽出した「手続の経緯」節のテキスト。
+テストは **「実起案コーパス + 公報経緯コーパスとの一致」** を主指標とする回帰テスト方式。
+正解集合は `corpus/` 配下の `.keii.txt` ファイル群:
+
+- 確定済み起案 docx から抽出した「手続の経緯」節のテキスト (純正 corpus 53 件)
+- 公報経緯 (拒絶査定不服 Z 審決 1072 件、`jpj_<appno>__jpj_official.keii.txt`)
+
+公報経緯コーパスは `archived_download_data.zip` から「第１→第２」構造を持つ Z 審決を全件抽出。inventory に doc_history がある案件のみ評価対象になる (inventory は日次 cron で拡張、`99_onboard_daily.py`)。
 
 ### 1.1 評価指標
 
+**主指標 (2026-06-07 導入)**: 正規化後の完全一致 Y/N
+
 | 指標 | 計算方法 | 意味 |
 |---|---|---|
-| **ratio** | `difflib.SequenceMatcher(None, gen, corpus).ratio()` | 0.0〜1.0、1.0=完全一致 |
-| **mean ratio** | 全 valid 案件の ratio 平均 | 全体的な再現性 |
-| **median ratio** | 同・中央値 | 外れ値に強い再現性 |
-| **valid count** | ratio > 0 の案件数 | 生成・比較が成立した件数 |
+| **match** | 正規化後の生成文 == corpus | "Y" / "N" |
+| **正答率** | match=Y の件数 / valid 件数 | 厳格な一致率 |
+
+**並走旧指標 (ログ用)**: ratio
+
+| 指標 | 計算方法 | 意味 |
+|---|---|---|
+| **ratio** | `difflib.SequenceMatcher(None, gen, corpus).ratio()` | 0.0〜1.0、文字単位の甘い一致率。1書類抜けでも 0.9 を超えるため判定指標としては不適。退化検出用にログ目的で残す |
 
 ### 1.2 正規化
 
-corpus と生成出力の比較前に以下を正規化する:
+corpus と生成出力の比較前に正規化する。実装: `tools/keii_normalize.py:normalize_for_compare()`。
 
-- 行頭の全角空白を除去
-- 行末の空白を除去
-- 空行を削除
-- 連続空白を 1 つに
+吸収対象 (`keii_normalization_candidates.md` v1 ユーザー承認版):
 
-これにより「見た目が同じだが微妙にスペースが違う」差異は同一視される。
-実装: `92_batch_generate.py:normalize()`
+- **A 群 (空白・改行系)**: 行頭/行末空白除去、空行除去、行内連続空白圧縮、括弧前後の空白除去、コロン前後の空白除去 (全角/半角同一視)
+- **B 群 (表記揺れ)**:
+  - B-2: 「とした特許出願であって」⇔「としたものであって」
+  - B-3: 「特許法 44 条 1 項の規定に基づいて」の挿入有無を同視 (削除)
+  - B-4: 「YYYY 年（和暦XX年）」→「和暦XX年」(西暦+括弧を削除)
+  - B-5: 「優先日」定義行を両側で削除 (表記揺れが大きく単純規則で同視できないため除外)
+- **C-4 (吸収可)**: 願番号「特願YYYY－  XXXXXXX号」(空白桁埋め) ↔「特願YYYY－NNNNNNN号」(ゼロ埋め) を同一視
+- **C-5 (吸収可)**: 同日複数書類グループの並び順差をソートで揃える
+
+吸収対象外 (Lievito 実バグとして個別改修):
+
+- C-1 翻訳文書類取りこぼし（A631 dates.py 修正済、`5df9001`）
+- C-2 50 条の 2 通知付記の検出 (TODO)
+- C-3 複数優先権の集約 (TODO、現状コード検証要)
 
 ### 1.3 テスト対象案件
 
-`inventory/case_appno_map.tsv` に `status=ok` で登録された 44 件を対象とする
-（同一 appno のダブル登録 = corpus 内 48 件のうち 4 件は別行で生成されない）。
+`inventory/case_appno_map.tsv` に `status=ok` で登録された案件 (純正 53 + 公報由来 1072 = 約 1125 件) のうち、inventory に doc_history がある案件のみ生成・比較が成立する。
+
+inventory は本日時点で 164 件、Z 案件 100 件で評価可能。cron で日次 50 件追加 (`99_onboard_daily.py`)。
 
 case_appno_map.tsv の各列:
 
@@ -232,9 +252,21 @@ print(cls)
 
 ---
 
-## 6. 期待される ratio 水準（現状ベースライン）
+## 6. 期待される指標水準
 
-2026-05-20 時点:
+### 6.1 新指標 (正答率、2026-06-07 以降の主指標)
+
+正規化後の完全一致 Y/N で計測。
+
+評価基準:
+- 退化検出: 直前ベースラインから match Y の件数が減ったら退化と扱う
+- 改善: match Y 件数の増加と diff の質的改善 (`inventory/batch_generate/*.diff.txt`) の両方を確認
+
+公報経緯は起案 corpus と比較すると表記の流儀差が大きいため、初期段階では正答率は低めから始まる。
+
+### 6.2 旧指標 (ratio、退化検出ログ用に並走)
+
+2026-05-20 時点 (corpus 44 件):
 
 | 指標 | 値 |
 |---|---|
@@ -244,12 +276,10 @@ print(cls)
 | 全 44 件 min | 0.558 |
 | ratio >= 0.99 完全一致 | 0 件 |
 
-**「完全一致 0 件」は問題なし**。理由:
-- corpus は起案者ごとのスタイル差（西暦/和暦併記、出願番号括弧の有無、優先日定義位置 等）があり、生成器の 1 スタイル選択ではどうしても文字列レベルで差が出る
-- 1 部門ルール準拠でない裁量記述（条文番号挿入等）は生成器が出さない
-- 上記の差は `inventory/_diff_findings.md §B` に「裁量例外」として登録され、生成器を直す対象から外している
+旧指標で「完全一致 0 件」だったのは、corpus 内の起案者スタイル差や 1 部門ルール非準拠の裁量記述 (条文番号挿入等) が生成器の 1 スタイル選択と一致しないため。新指標導入後はこれらの差を:
 
-意味のある改善は **mean +0.01 以上、median 上昇、改悪 0 件** で判断。
+- 表記揺れで吸収可能なものは正規化に追加 (`tools/keii_normalize.py`)
+- 裁量例外として登録するものは `inventory/_diff_findings.md §B` に記録
 
 ### 6.1 値が低い案件（min 付近）の特徴
 
@@ -286,6 +316,8 @@ docx の正本側を更新した場合は corpus も更新すること。
 
 ## 8. 新規案件をテスト対象に追加する
 
+### 8.1 確定起案 docx 由来 (純正 corpus)
+
 ```
 1. inventory/case_appno_map.tsv に行追加
    case_key{tab}appno{tab}src_path{tab}ok{tab}note
@@ -304,6 +336,23 @@ docx の正本側を更新した場合は corpus も更新すること。
 4. テスト
    python3 92_batch_generate.py --cases {case_key}
 ```
+
+### 8.2 公報経緯由来 (Z 審決全件 corpus)
+
+公報経緯は `corpus/jpj_<appno>__jpj_official.keii.txt` として 1072 件配置済。inventory が揃った案件のみ評価可能。inventory 拡張は cron で日次自動:
+
+```
+40 23 * * * cd /opt/keii_pub && JPO_API_DIR=/opt/keii_secrets/jpo_api \
+            /usr/bin/python3 99_onboard_daily.py 50 \
+            >> /opt/keii_pub/inventory/onboard_daily_cron.log 2>&1
+```
+
+スクリプト `99_onboard_daily.py` の仕様:
+- `inventory/z_appno_list.json` (1072 件) から VPS 既存 inventory との差分を取り、ランダム N 件選定
+- 各 appno について `fetcher.onboard_appno` を実行
+- `/tmp/lievito_evolve.lock` 存在時はスキップ (進化ループ実行中)
+- `generator.api_remain.check_remain_or_abort` で API 残量 < 10 + N×5 なら sys.exit(2)
+- 各 OK 後に inventory の `remainAccessCount` で `update_remain`
 
 ---
 
