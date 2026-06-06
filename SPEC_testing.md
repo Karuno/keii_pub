@@ -339,7 +339,7 @@ docx の正本側を更新した場合は corpus も更新すること。
 
 ### 8.2 公報経緯由来 (Z 審決全件 corpus)
 
-公報経緯は `corpus/jpj_<appno>__jpj_official.keii.txt` として 1072 件配置済。inventory が揃った案件のみ評価可能。inventory 拡張は cron で日次自動:
+公報経緯は `corpus/jpj_<appno>__jpj_official.keii.txt` として配置 (現在 1072 件以上、アーカイブ追加で随時拡張)。inventory が揃った案件のみ評価可能。inventory 拡張は cron で日次自動:
 
 ```
 40 23 * * * cd /opt/keii_pub && JPO_API_DIR=/opt/keii_secrets/jpo_api \
@@ -348,11 +348,55 @@ docx の正本側を更新した場合は corpus も更新すること。
 ```
 
 スクリプト `99_onboard_daily.py` の仕様:
-- `inventory/z_appno_list.json` (1072 件) から VPS 既存 inventory との差分を取り、ランダム N 件選定
+- `inventory/z_appno_list.json` から VPS 既存 inventory との差分を取り、ランダム N 件選定
 - 各 appno について `fetcher.onboard_appno` を実行
 - `/tmp/lievito_evolve.lock` 存在時はスキップ (進化ループ実行中)
 - `generator.api_remain.check_remain_or_abort` で API 残量 < 10 + N×5 なら sys.exit(2)
 - 各 OK 後に inventory の `remainAccessCount` で `update_remain`
+
+### 8.3 新しいアーカイブが来たときの増分処理 (公報corpus と appno list の拡張)
+
+JPO/INPIT「特許情報標準データ」の月次アーカイブが追加で入手できた場合は、`claude_user_io/archived_download_data*.zip` として配置し、増分抽出スクリプトを実行する。
+
+```bash
+# 1. 新しいアーカイブを claude_user_io に配置 (例: archived_download_data(N).zip)
+
+# 2. 増分抽出 (WSL 側 venv で実行. 既存corpus/appno list を温存して新規分のみ追加)
+python tools/extract_jpj_z_archives.py \
+  --archive-glob 'claude_user_io/archived_download_data*.zip' \
+  --out-corpus corpus/ \
+  --out-appno-list inventory/z_appno_list.json \
+  --keep-existing
+
+# 3. VPS にデプロイ
+rsync -av corpus/jpj_*.keii.txt keii-vps:/opt/keii_pub/corpus/
+scp inventory/z_appno_list.json keii-vps:/opt/keii_pub/inventory/
+
+# 4. case_appno_map.tsv に新規 jpj_<appno> エントリを追加 (重複は skip)
+ssh keii-vps "cd /opt/keii_pub && python3 -c '
+import json
+from pathlib import Path
+appnos = json.loads(Path(\"inventory/z_appno_list.json\").read_text())
+existing = set()
+for line in Path(\"inventory/case_appno_map.tsv\").read_text().splitlines()[1:]:
+    cols = line.split(chr(9))
+    if cols[0]: existing.add(cols[0])
+with Path(\"inventory/case_appno_map.tsv\").open(\"a\") as f:
+    for appno in appnos:
+        key = f\"jpj_{appno}\"
+        if key in existing: continue
+        f.write(f\"{key}\\t{appno}\\t(jpj_official_extract)\\tok\\t\\n\")
+'"
+
+# 5. これ以降の cron 23:40 daily 50件 onboard が自動で新規 appno を対象に含める
+#    (99_onboard_daily.py が z_appno_list.json と VPS既存 inventory の差分から抽出するため)
+```
+
+スクリプト `tools/extract_jpj_z_archives.py` の仕様:
+- 入力: `--archive-glob` で複数の zip をスキャン
+- フィルタ: 拒絶査定不服 Z 審決 (「本件審判の請求は、成り立たない」を含む) で「第１→第２」構造のもののみ
+- 出力: 公報経緯テキスト (`{out-corpus}/jpj_<appno>__jpj_official.keii.txt`) + appno 一覧 JSON
+- `--keep-existing` で既存出力を温存し新規分のみ追加
 
 ---
 

@@ -59,7 +59,8 @@ keii_pub/
 │   └── settings.py               ← 設定ローダ
 │
 ├── tools/                        ← 補助ツール
-│   └── keii_normalize.py         ← 比較用正規化 (A群/B群/C-4/C-5 吸収)
+│   ├── keii_normalize.py         ← 比較用正規化 (A群/B群/C-4/C-5 吸収)
+│   └── extract_jpj_z_archives.py ← 公報経緯 corpus 増分抽出 (JPO 特許情報標準データ zip 複数対応)
 │
 ├── templates/                    ← 仕様カタログ（人が読む）
 │   ├── keii_model.yaml           ← 全体モデル

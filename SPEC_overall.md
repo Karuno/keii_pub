@@ -582,9 +582,11 @@ python _compare_A1.py
 
 旧指標 (`ratio`) は退化検出用に並走でログに残す。
 
-corpus 拡張: 確定起案 docx 由来 (純正 corpus 53 件) に加えて、公報経緯 (Z 審決 1072 件、`corpus/jpj_<appno>__jpj_official.keii.txt`) を併用する。比較対象は VPS inventory に既存 doc_history がある案件のみ。
+corpus 拡張: 確定起案 docx 由来 (純正 corpus 53 件) に加えて、公報経緯 (`corpus/jpj_<appno>__jpj_official.keii.txt`) を併用する。比較対象は VPS inventory に既存 doc_history がある案件のみ。
 
-新指標の評価結果は `SPEC_testing.md §6` を参照。
+公報経緯 corpus は `tools/extract_jpj_z_archives.py` で JPO/INPIT 特許情報標準データの月次 zip (`claude_user_io/archived_download_data*.zip`) から増分抽出する。新しいアーカイブが追加されたら同スクリプトで `--keep-existing` を付けて再実行し、`inventory/z_appno_list.json` を更新すれば、cron 駆動の `99_onboard_daily.py` が自動的に新規 appno を inventory 拡張対象に含める。
+
+新指標の評価結果は `SPEC_testing.md §6` を参照。運用手順は `SPEC_testing.md §8.3` を参照。
 
 ---
 
