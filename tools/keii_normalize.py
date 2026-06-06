@@ -283,6 +283,40 @@ def _absorb_kyozetsu_riyu_sho(text: str) -> str:
     return _KYOZETSU_NO_SHO_RE.sub("拒絶理由通知書", text)
 
 
+# ----------------------------------------------------------------------------
+# 手続補正書（方式）行の両側削除 (Lievito は規範通り除外、公報側で書く案件あり)
+# ----------------------------------------------------------------------------
+
+def _drop_houshiki_hosei(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if "手続補正書（方式）" in line:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+# ----------------------------------------------------------------------------
+# 同日結合行内の書類順序を統一 (公報・Lievito で順序揺れがあるため両側ソート)
+# ----------------------------------------------------------------------------
+
+_COMBINED_LINE_RE = re.compile(r"^(.*?[：:])([^：:\n]+の提出)$", re.MULTILINE)
+_DOC_NAME_SPLIT_RE = re.compile(r"[、]+|及び")
+
+def _normalize_combined_doc_order(text: str) -> str:
+    """同日結合行『日付：A、B、C の提出』の書類名部分をソートして順序差を吸収."""
+    def repl(m):
+        prefix = m.group(1)
+        suffix = m.group(2)
+        body = suffix[:-3]  # 「の提出」削除
+        parts = [p.strip() for p in _DOC_NAME_SPLIT_RE.split(body) if p.strip()]
+        if len(parts) < 2:
+            return m.group(0)  # 単独書類はそのまま
+        parts.sort()
+        return prefix + "、".join(parts) + "の提出"
+    return _COMBINED_LINE_RE.sub(repl, text)
+
+
 # 50条の2の通知付記の形式差吸収 (公報側「特許法５０条の２の通知を伴う拒絶理由通知書」=書類名埋込形式
 # → corpus 基準の「拒絶理由通知書」+別行「（特許法５０条の２の通知を伴う。）」に統一)
 _FIFTY_NO_2_EMBEDDED_RE = re.compile(r"：特許法５０条の２の通知を伴う拒絶理由通知書")
@@ -531,9 +565,11 @@ def normalize_for_compare(text: str) -> str:
     text = _absorb_b5_prio_def(text)
     text = _absorb_c5_same_day_order(text)
     text = _drop_zenchi_report(text)
+    text = _drop_houshiki_hosei(text)
     text = _absorb_kyozetsu_riyu_sho(text)
     text = _normalize_fifty_no_2_format(text)
     text = _absorb_b7_oyobi(text)
+    text = _normalize_combined_doc_order(text)
     text = _absorb_head_dai(text)
     text = _absorb_head_sub_num(text)
     text = _absorb_keii_gaiyo(text)

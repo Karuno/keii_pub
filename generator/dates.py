@@ -349,7 +349,10 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 name = "手続補正書"
             elif code == "A524":
                 name = "誤訳訂正書"
-            elif code == "A971015":
+            elif code in ("A971015", "C30", "C302"):
+                # C30 (面接記録) / C302 (応対記録、審判段階) は本来 Type A 庁発書類だが、
+                # outbound XML には載らないため doc_history.legalDate で Type B 経路で取得.
+                # 純正corpus の表記は「応対記録」で統一.
                 name = "応対記録"
             elif code == "C60":
                 name = "審判請求書"
