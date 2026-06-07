@@ -98,6 +98,30 @@ def generate_intro(data: dict[str, Any]) -> dict:
         text = (f"{HEAD}{to_wareki(filing_date)}の外国語書面出願（パリ条約による優先権主張、"
                 f"{prio_str}）であって、{TAIL}")
 
+    elif pattern == "変更_実用新案_特許":
+        # 特許法46条による出願変更（実用新案登録出願 → 特許出願）
+        # 公報例（jpj_2023126280）:
+        #  「本件出願は、令和４年９月１日の実用新案登録出願である
+        #   実願２０２２－２８９６号を令和５年８月２日に特許出願に変更した
+        #   出願（特願２０２３－１２６２８０号）であって、…」
+        from .classify import utility_parent_filing_date
+        parent = data.get("parentApplicationInformation", {}) or {}
+        parent_appno = parent.get("parentApplicationNumber", "")
+        parent_filing = utility_parent_filing_date(data)
+        own_appno = data.get("applicationNumber", "") or ""
+        if not (parent_appno and parent_filing and filing_date and own_appno):
+            missing.extend([k for k, v in [
+                ("parent.parentApplicationNumber", parent_appno),
+                ("parent.filingDate", parent_filing),
+                ("filingDate", filing_date),
+                ("applicationNumber", own_appno)] if not v])
+            text = f"<<参照エラー: 変更_実用新案_特許 親情報不足 {missing}>>"
+        else:
+            text = (f"{HEAD}{to_wareki(parent_filing)}の実用新案登録出願である"
+                    f"{_format_jitsugan_appno(parent_appno)}を"
+                    f"{to_wareki(filing_date)}に特許出願に変更した出願"
+                    f"（特願{_format_appno_with_dash(own_appno)}号）であって、{TAIL}")
+
     elif pattern == "分割_基本形":
         # parentApplicationInformation の構造（JPO API実測）:
         #   {"parentApplicationNumber": "YYYYNNNNNN", "filingDate": "YYYYMMDD"}
@@ -261,6 +285,23 @@ def _format_appno_with_dash(appno_10: str) -> str:
         return appno_10
     from .jp_dates import _to_zen
     return f"{_to_zen(appno_10[:4])}－{_to_zen(appno_10[4:])}"
+
+
+def _format_jitsugan_appno(appno_10: str) -> str:
+    """実用新案登録出願 10桁番号 → 「実願２０●●－●●●●号」全角形式。
+
+    例: '2022002896' → '実願２０２２－２８９６号'
+    （末尾6桁から先頭の0埋めを除去して4桁以下に圧縮する。
+      最大公開実願番号 ≒ 5万件/年 なので 5桁になる年もありうるが、
+      先頭ゼロを単純に strip すれば公報慣行に整合する）
+    """
+    if not appno_10 or len(appno_10) != 10:
+        return appno_10
+    from .jp_dates import _to_zen
+    year = appno_10[:4]
+    seq_raw = appno_10[4:]
+    seq = seq_raw.lstrip("0") or "0"
+    return f"実願{_to_zen(year)}－{_to_zen(seq)}号"
 
 
 def _gen_num_to_kanji(n: int) -> str:

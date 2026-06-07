@@ -143,6 +143,47 @@ def parent_apptype_phrase(parent_appno: str) -> str | None:
     return None
 
 
+def is_utility_model_conversion(data: dict[str, Any]) -> bool:
+    """特許法46条による出願変更（実用新案登録出願 → 特許出願）か判定する。
+
+    検出ロジック:
+      親出願 (parentApplicationInformation.parentApplicationNumber) を特許API で照会し、
+      親の divisionalApplicationInformation に本願 appno が含まれていなければ
+      46条による出願変更と判定する（44条1項分割なら親側にも子の登録が必須）。
+
+      親の doc_history が取得できない場合は判定不能 → False（44条扱いフォールバック）。
+
+    なお JPO の patent API は実用新案登録の doc_history を提供しないため、
+    本判定は「親が特許 API 上の真の親ではないこと」しか保証しない。理論上は
+    意匠変更 (10条) 等の他法源も同じ症状を呈しうるが、本システムは特許審判
+    のみを扱うため、検出時は実用新案変更と扱う（コーパス上 99% は UM 変更）。
+    """
+    parent = data.get("parentApplicationInformation", {}) or {}
+    parent_appno = parent.get("parentApplicationNumber", "")
+    own_appno = data.get("applicationNumber", "") or ""
+    if not parent_appno or not own_appno:
+        return False
+    parent_data = _load_doc_history_data(parent_appno)
+    if not parent_data:
+        # 親の doc_history が未取得 → 判定不能（False で 44条フォールバック）
+        return False
+    divs = parent_data.get("divisionalApplicationInformation", []) or []
+    child_appnos = [d.get("applicationNumber", "") for d in divs]
+    # 親側の divisional list に本願 appno が無ければ 46条変更と判定
+    return own_appno not in child_appnos
+
+
+def utility_parent_filing_date(data: dict[str, Any]) -> str:
+    """46条変更における親の実用新案登録出願日 (YYYYMMDD) を返す。
+
+    優先順位:
+      1. parentApplicationInformation.filingDate (API 直値。実用新案の登録出願日として記録される)
+      2. 取得不能なら空文字
+    """
+    parent = data.get("parentApplicationInformation", {}) or {}
+    return parent.get("filingDate", "") or ""
+
+
 def is_pct_national_phase(appno: str) -> bool:
     """出願番号10桁の5桁目（=下6桁の1桁目）が "5" なら PCT 国内段階。
 
@@ -238,11 +279,16 @@ def detect_pattern(data: dict[str, Any]) -> dict:
         chain_root_is_pct_national_phase(data) or aux_root_is_pct_national_phase(data)
     ) if is_div else False
     generation = get_generation(data)
+    # 46条出願変更（実用新案→特許）検出。is_div の系列で「親側に本願が無い」場合に該当
+    is_utility_conv = is_utility_model_conversion(data) if is_div else False
 
     pattern = "通常内国出願"
     if is_div:
+        # 46条出願変更（実用新案→特許）優先判定（44条分割ではないため）
+        if is_utility_conv:
+            pattern = "変更_実用新案_特許"
         # 世代 (chain depth) で分岐。最先が PCT国内段階の場合は親がPCT扱い
-        if generation >= 3:
+        elif generation >= 3:
             pattern = "分割_第3世代以降"
         elif generation == 2 and chain_root_pct:
             pattern = "分割_PCT原出願_第2世代"
@@ -281,4 +327,5 @@ def detect_pattern(data: dict[str, Any]) -> dict:
         "generation": generation,
         "parent_is_pct": parent_is_pct,
         "chain_root_pct": chain_root_pct,
+        "is_utility_conversion": is_utility_conv,
     }

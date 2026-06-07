@@ -150,6 +150,19 @@ honyo_intro_patterns:
     fields_required: [grandparent_filing_date, grandparent_appno, parent_filing_date, parent_appno, filing_date]
     notes: "優先権主張部分は任意（パターンに含まれていれば挿入）"
 
+  変更_実用新案_特許:
+    detector:
+      is_divisional: true
+      is_utility_conversion: true   # 親doc_historyのdivisional listに本願appno無し
+    template: '　本願は、{parent_filing_date}の実用新案登録出願である{utility_appno}を{filing_date}に特許出願に変更した出願（特願{own_appno}号）であって、その手続の経緯の概略は、次のとおりである。'
+    fields_required: [parent_filing_date, utility_appno, filing_date, own_appno]
+    notes: |
+      特許法46条1項による出願変更（実用新案登録出願 → 特許出願）。
+      utility_appno は 「実願YYYY-N号」 形式（10桁 appno 末尾6桁の先頭ゼロを除去）。
+      parent_filing_date は API の parentApplicationInformation.filingDate
+        （ただし UM 親番号は patent 系列番号と衝突する場合があり、その時は
+         衝突した特許の出願日になり、公報記載と乖離するリスクあり）。
+
   分割_第3世代以降:
     detector:
       is_divisional: true
