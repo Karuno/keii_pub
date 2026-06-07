@@ -123,12 +123,12 @@ def generate_intro(data: dict[str, Any]) -> dict:
                 ("parent.parentApplicationNumber", parent_appno),
                 ("filingDate", filing_date),
                 ("applicationNumber", own_appno)] if not v])
-            text = f"<<参照エラー: 変更_実用新案_特許 親情報不足 {missing}>>"
+            text = f"<<参照エラー: 変更_実用新案_特許 親情報不足 {missing}（実用新案の書誌情報取得は未対応）>>"
         else:
             parent_filing_phrase = (
                 to_wareki(parent_filing)
                 if verified and parent_filing
-                else "<<参照エラー: 親実用新案の出願日が公開APIで取得不可>>"
+                else "<<参照エラー: 親実用新案の出願日が公開APIで取得不可（実用新案の書誌情報取得は未対応）>>"
             )
             text = (f"{HEAD}{parent_filing_phrase}の実用新案登録出願である"
                     f"{_format_jitsugan_appno(parent_appno)}を"
