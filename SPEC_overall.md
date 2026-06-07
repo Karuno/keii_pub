@@ -300,8 +300,16 @@ JPO API 不通時のフォールバック。補助ソースを全件スクレイ
 |---|---|---|
 | **A**（庁作成）通常 | `doc_xmls/{appno}/_summary.json` → 各 XML の `<jp:drafting-date>` | `aux_dates/{appno}.json` |
 | **A** 前置報告書 (A913) | `zenchi_drafting/{appno}.json` の `drafting_dates_all` | （同上） |
+| **A** 当審拒絶理由通知書 (C13) | `aux_dates/{appno}.json` の `drafting_date` (発送日 ±14日で照合) | (補助ソース未取得時は参照エラー) |
 | **B**（提出） | `doc_history_collected/{appno}.json` の各書類の `legalDate` | `aux_dates/{appno}.json` の `table_date` |
 | **C**（送達） | `doc_history_collected/{appno}.json` の `A02`（拒絶査定）の `legalDate` | （同上） |
+
+> **CAUTION (発送日 vs 起案日)**: JPO API の `legalDate` は **発送日** であり、 経緯記載に必要な
+> **起案日 (作成日)** とは異なる。 庁作成書類 (Type A) の起案日は本文 (PDF/XML) から
+> 抽出する必要がある。 `A913` (前置報告書) / `C13` (当審拒絶理由通知書) はいずれも
+> API XML で本文を取得できないため、 補助ソース (J-PlatPat 経過参照) から
+> 「作成日」/「起案日」をスクレイピングして取得する。 `legalDate` を起案日として
+> 流用するとデグレ要因になる。
 
 ### 6.3 拾う書類（Allow-List）
 
@@ -311,6 +319,7 @@ JPO API 不通時のフォールバック。補助ソースを全件スクレイ
 - `A502` 補正の却下の決定
 - `A03` 特許査定
 - `A913` 前置報告書
+- `C13` 当審拒絶理由通知書 (審判段階。 起案日は補助ソースが必要)
 
 #### Type B
 - `A53` 意見書

@@ -414,22 +414,107 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
                 break  # A02 は通常1件
 
     # Type A from doc_history: 審判段階の当審拒絶理由通知書 (C13)
-    # 審判段階の書類は JPO API の outbound XML で取得できないため、doc_history から拾う
+    # 審判段階の書類は JPO API の outbound XML で取得できないため、doc_history から拾う。
+    #
+    # CAUTION: C13 の legalDate は **発送日** であり、 経緯記載に必要なのは
+    #          書類本文の **起案日** (= 作成日)。 同モジュール冒頭 A913 (前置報告書)
+    #          についての注意書きと同じ罠で、ここで legalDate を起案日として
+    #          採用してはならない。 起案日は 補助ソース (J-PlatPat 経過参照)
+    #          から取得する必要があり、 inventory/aux_dates/{appno}.json に
+    #          保存される (07_fetch_aux_fallback.py)。
+    #          補助ソース未取得時は date_iso を空文字にし、当該書類エントリの
+    #          note に取得不可フラグを残す。chronology 側でその場合に
+    #          参照エラー表示に切り替える。
+    appno_str = data.get("applicationNumber", "") or ""
+    aux_c13_dates = _aux_c13_drafting_dates(appno_str)
     for b in biblio:
         for d in b.get("documentList", []) or []:
             if d.get("documentCode") == "C13":
                 legal = d.get("legalDate", "")
-                iso = _yyyymmdd_to_iso(legal)
-                if iso:
+                legal_iso = _yyyymmdd_to_iso(legal)
+                if not legal_iso:
+                    continue
+                # legalDate (発送日) 近傍の aux 起案日を引く
+                drafting_iso = _match_c13_drafting(aux_c13_dates, legal_iso)
+                if drafting_iso:
                     out.append(DocumentEntry(
                         name="当審拒絶理由通知書",
                         code="C13",
-                        date_iso=iso,
+                        date_iso=drafting_iso,
+                        doc_type="A",
+                        source="external_fallback",
+                        note=f"C13 起案日 (補助ソース)。発送日 legalDate={legal_iso}",
+                        raw=d,
+                    ))
+                else:
+                    # 起案日取得不可 → 参照エラー扱い (発送日 legalDate を流用しない)
+                    out.append(DocumentEntry(
+                        name="当審拒絶理由通知書",
+                        code="C13",
+                        date_iso=legal_iso,  # 並び順用 (発送日)
                         doc_type="A",
                         source="doc_history",
+                        note="drafting_date_unavailable",
                         raw=d,
                     ))
     return out
+
+
+def _aux_c13_drafting_dates(appno: str) -> list[tuple[str, str]]:
+    """補助ソース aux_dates から「拒絶理由通知書」エントリの (table_date, drafting_date) を返す。
+
+    J-PlatPat の 経過参照 では C13 と A131 を区別せず「拒絶理由通知書」ラベルで列挙する。
+    呼び出し側で legalDate との近接性から C13 のものを選別する。
+    """
+    if not appno:
+        return []
+    p = INV_DIR / "aux_dates" / f"{appno}.json"
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[tuple[str, str]] = []
+    for d in data.get("documents", []):
+        name = d.get("name", "")
+        if "拒絶理由通知書" not in name:
+            continue
+        table = d.get("table_date", "") or ""
+        draft = d.get("drafting_date", "") or ""
+        if isinstance(table, str) and isinstance(draft, str) and table and draft:
+            out.append((table, draft))
+    return out
+
+
+def _match_c13_drafting(aux: list[tuple[str, str]], legal_iso: str) -> str | None:
+    """legal_iso (= C13 発送日) に最も近い (table_date, drafting_date) ペアから drafting_date を返す。
+
+    発送日と table_date (経過参照テーブルの表示日) は通常同日 or 数日差。
+    14 日以内のずれを許容し、 それより離れている場合は不一致と判断して None。
+    """
+    from datetime import date
+
+    def _to_date(s: str) -> date | None:
+        try:
+            return date(int(s[:4]), int(s[5:7]), int(s[8:10]))
+        except (ValueError, IndexError):
+            return None
+
+    target = _to_date(legal_iso)
+    if target is None:
+        return None
+    best: tuple[int, str] | None = None
+    for table, draft in aux:
+        td = _to_date(table)
+        if td is None:
+            continue
+        diff = abs((td - target).days)
+        if diff > 14:
+            continue
+        if best is None or diff < best[0]:
+            best = (diff, draft)
+    return best[1] if best else None
 
 
 # ============================================================================

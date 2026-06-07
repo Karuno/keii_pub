@@ -333,7 +333,14 @@ def render_chronology(entries: list[DocumentEntry]) -> list[ChronoLine]:
             # 拒絶査定の別称付与
             if e.name == "拒絶査定":
                 doc_name = "拒絶査定（以下「原査定」という。）"
-            line = _render_type_a(date_text, doc_name)
+            # 起案日取得不可の場合 (C13 で 補助ソース 未整備時) は date を参照エラー表記に
+            if (e.note or "") == "drafting_date_unavailable":
+                line = (
+                    "<<参照エラー: " + doc_name + " の起案日が公開APIで取得不可"
+                    " (発送日 " + date_text + " のみ取得済)>>"
+                )
+            else:
+                line = _render_type_a(date_text, doc_name)
             out.append(ChronoLine(date_iso, "A", line, group))
             # 拒絶理由通知書 (50条の2通知付記) を別行で追加
             if "拒絶理由通知書" in e.name and (e.raw or {}).get("_body_has_fifty_no_2"):
