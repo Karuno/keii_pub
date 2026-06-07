@@ -129,6 +129,11 @@ def main() -> None:
         )
         diff_path.write_text(diff_text or "(identical)", encoding="utf-8")
 
+        # 参照エラーを含む生成結果は評価対象外 (情報源不在の正直な明示として skip)
+        skip_reason = ""
+        if "<<参照エラー" in gen_text:
+            skip_reason = "reference_error_in_output"
+
         rows.append({
             "case_key": case_key, "appno": appno, "pattern": res.pattern,
             "match": stats["match"],
@@ -136,11 +141,15 @@ def main() -> None:
             "len_gen": stats["len_gen"], "len_act": stats["len_act"],
             "common_prefix": stats["common_prefix"],
             "source": res.source_used, "error": "",
+            "skip_reason": skip_reason,
         })
-        print(f"  {case_key:15s} match={stats['match']} ratio={stats['ratio']:.3f} pattern={res.pattern}")
+        if skip_reason:
+            print(f"  {case_key:15s} SKIP ({skip_reason}) pattern={res.pattern}")
+        else:
+            print(f"  {case_key:15s} match={stats['match']} ratio={stats['ratio']:.3f} pattern={res.pattern}")
 
     # ログ出力
-    cols = ["case_key", "appno", "pattern", "match", "ratio", "len_gen", "len_act", "common_prefix", "source", "error"]
+    cols = ["case_key", "appno", "pattern", "match", "ratio", "len_gen", "len_act", "common_prefix", "source", "error", "skip_reason"]
     log_path = OUT_DIR / "_batch_log.tsv"
     with log_path.open("w", encoding="utf-8") as f:
         f.write("\t".join(cols) + "\n")
@@ -148,7 +157,9 @@ def main() -> None:
             f.write("\t".join(str(r.get(c, "")) for c in cols) + "\n")
 
     # サマリ
-    valid = [r for r in rows if r.get("ratio", 0) > 0]
+    skipped_rows = [r for r in rows if r.get("skip_reason")]
+    # 評価対象は ratio>0 かつ skip_reason 無し
+    valid = [r for r in rows if r.get("ratio", 0) > 0 and not r.get("skip_reason")]
     if valid:
         # 新指標: 正規化後完全一致 Y/N の正答率
         n_match = sum(1 for r in valid if r.get("match") == "Y")
@@ -162,9 +173,14 @@ def main() -> None:
         n_perfect = sum(1 for r in valid if r["ratio"] >= 0.99)
         print(f"\n=== summary ===")
         print(f"  valid: {len(valid)}/{len(rows)}")
+        print(f"  skipped: {len(skipped_rows)}/{len(rows)} (情報源不足のため評価対象外)")
         print(f"  [新指標] match Y: {n_match}/{len(valid)} ({match_rate:.3f})")
         print(f"  [旧指標] ratio mean={avg_ratio:.3f} median={median:.3f} min={min_r:.3f} max={max_r:.3f}")
         print(f"  [旧指標] ratio >= 0.99: {n_perfect}")
+    if skipped_rows:
+        print("\n  --- skipped cases ---")
+        for r in skipped_rows:
+            print(f"    {r['case_key']:15s} reason={r['skip_reason']} pattern={r.get('pattern','')}")
     print(f"  log: {log_path}")
     print(f"  per-case: {OUT_DIR}/<case_key>.{{gen,diff}}.txt")
 

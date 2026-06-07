@@ -176,12 +176,31 @@ def is_utility_model_conversion(data: dict[str, Any]) -> bool:
 def utility_parent_filing_date(data: dict[str, Any]) -> str:
     """46条変更における親の実用新案登録出願日 (YYYYMMDD) を返す。
 
+    CAUTION: 本関数の戻り値は **信頼できない**。
+      JPO 特許 API の parentApplicationInformation.filingDate は親が特許出願の場合の
+      出願日であり、親が実用新案登録出願 (46条変更) の場合は、同一の10桁番号を持つ
+      別の特許出願の値が紛れ込むケースが観測されている。実用新案登録出願の正規の
+      出願日を取得する公開APIエンドポイントは現状存在しない。
+      呼び出し側は utility_parent_filing_date_verified() を併用すること。
+
     優先順位:
-      1. parentApplicationInformation.filingDate (API 直値。実用新案の登録出願日として記録される)
+      1. parentApplicationInformation.filingDate (API 直値、信頼性に注意)
       2. 取得不能なら空文字
     """
     parent = data.get("parentApplicationInformation", {}) or {}
     return parent.get("filingDate", "") or ""
+
+
+def utility_parent_filing_date_verified(data: dict[str, Any]) -> bool:
+    """46条変更における親 UM の出願日が信頼可能な情報源で検証できるか。
+
+    現状、JPO は実用新案登録の出願日を取得する公開APIを提供していないため、
+    常に False を返す（推測値で出力するとハル誘発のため）。
+
+    将来、 公報経緯 等の補助ソースから実用新案出願日を取得できるようになった
+    場合は、 当該データが inventory に存在するかをチェックして True を返す。
+    """
+    return False
 
 
 def is_pct_national_phase(appno: str) -> bool:

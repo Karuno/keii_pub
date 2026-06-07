@@ -104,20 +104,33 @@ def generate_intro(data: dict[str, Any]) -> dict:
         #  「本件出願は、令和４年９月１日の実用新案登録出願である
         #   実願２０２２－２８９６号を令和５年８月２日に特許出願に変更した
         #   出願（特願２０２３－１２６２８０号）であって、…」
-        from .classify import utility_parent_filing_date
+        #
+        # 親 UM 出願日は parentApplicationInformation.filingDate に値が入って
+        # いるが、これは同番号の別件特許出願の値が紛れ込むケースが観測されて
+        # いるため信頼できない (utility_parent_filing_date_verified() 参照)。
+        # 出願日不明と扱い、当該日付箇所に参照エラーを残して下流評価で skip 判定する。
+        from .classify import (
+            utility_parent_filing_date,
+            utility_parent_filing_date_verified,
+        )
         parent = data.get("parentApplicationInformation", {}) or {}
         parent_appno = parent.get("parentApplicationNumber", "")
-        parent_filing = utility_parent_filing_date(data)
         own_appno = data.get("applicationNumber", "") or ""
-        if not (parent_appno and parent_filing and filing_date and own_appno):
+        verified = utility_parent_filing_date_verified(data)
+        parent_filing = utility_parent_filing_date(data) if verified else ""
+        if not (parent_appno and filing_date and own_appno):
             missing.extend([k for k, v in [
                 ("parent.parentApplicationNumber", parent_appno),
-                ("parent.filingDate", parent_filing),
                 ("filingDate", filing_date),
                 ("applicationNumber", own_appno)] if not v])
             text = f"<<参照エラー: 変更_実用新案_特許 親情報不足 {missing}>>"
         else:
-            text = (f"{HEAD}{to_wareki(parent_filing)}の実用新案登録出願である"
+            parent_filing_phrase = (
+                to_wareki(parent_filing)
+                if verified and parent_filing
+                else "<<参照エラー: 親実用新案の出願日が公開APIで取得不可>>"
+            )
+            text = (f"{HEAD}{parent_filing_phrase}の実用新案登録出願である"
                     f"{_format_jitsugan_appno(parent_appno)}を"
                     f"{to_wareki(filing_date)}に特許出願に変更した出願"
                     f"（特願{_format_appno_with_dash(own_appno)}号）であって、{TAIL}")
