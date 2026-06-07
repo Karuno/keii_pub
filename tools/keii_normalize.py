@@ -155,19 +155,20 @@ _PRIO_DEF_RE_LIST = [
     ),
 ]
 
+_PRIO_DEF_FRAGMENT_RE = re.compile(
+    r"(?:なお、|以下、|なお|以下)[^。\n]*?「優先日」という。?"
+)
+
+
 def _absorb_b5_prio_def(text: str) -> str:
-    """優先日定義行を両側で削除して比較対象外とする.
+    """優先日定義の節 (「なお、…を以下「優先日」という。」) のみ部分削除して比較対象外とする.
 
     公報・Lievito ともに表記揺れ (位置・接続詞・西暦/和暦の使い分け) が大きく、
     Paris 優先日では公報=西暦のみ・Lievito=西暦+(和暦) の非対称があるため、
-    単純規則での同視が不能。比較から除外し経緯行リストの一致確認に集中する。
+    単純規則での同視が不能。 優先日定義の節そのものだけを除去し、
+    Lievito の prio_def_style='A' で冒頭文に連結された場合でも冒頭文を消さない.
     """
-    out: list[str] = []
-    for line in text.splitlines():
-        if "「優先日」" in line and "という" in line:
-            continue
-        out.append(line)
-    return "\n".join(out)
+    return _PRIO_DEF_FRAGMENT_RE.sub("", text)
 
 
 # ----------------------------------------------------------------------------
