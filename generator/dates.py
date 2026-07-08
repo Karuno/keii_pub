@@ -425,6 +425,28 @@ def _from_doc_history_json(p: Path) -> list[DocumentEntry]:
     #          補助ソース未取得時は date_iso を空文字にし、当該書類エントリの
     #          note に取得不可フラグを残す。chronology 側でその場合に
     #          参照エラー表示に切り替える。
+    # Type A from doc_history: 前置報告書 (A913)
+    # A913 の legalDate は発送日。経緯記載に必要な「作成日」は補助ソース
+    # (zenchi_drafting) から取るため、ここでは並び順用プレースホルダのみ作る。
+    # get_doc_dates_with_source が zenchi 作成日を取得済みならこのエントリを捨て、
+    # 未取得なら note により chronology が参照エラー表示に切り替える
+    # (従来は行が無言で消えていた)。
+    for b in biblio:
+        for d in b.get("documentList", []) or []:
+            if d.get("documentCode") == "A913":
+                legal = d.get("legalDate", "")
+                iso = _yyyymmdd_to_iso(legal)
+                if iso:
+                    out.append(DocumentEntry(
+                        name="前置報告書",
+                        code="A913",
+                        date_iso=iso,
+                        doc_type="A",
+                        source="doc_history",
+                        note="drafting_date_unavailable",
+                        raw=d,
+                    ))
+
     appno_str = data.get("applicationNumber", "") or ""
     aux_c13_dates = _aux_c13_drafting_dates(appno_str)
     for b in biblio:
@@ -618,6 +640,11 @@ def get_doc_dates_with_source(appno: str) -> tuple[list[DocumentEntry], str]:
     # primary が成立する条件: API summary もしくは doc_history のいずれかが存在
     if summary or history:
         entries = summary + zenchi + history
+        # 前置報告書: 補助ソース作成日 (external_zenchi) が取れていれば、
+        # doc_history 由来のプレースホルダ (発送日・参照エラー用) は捨てる
+        if any(e.name == "前置報告書" and e.source == "external_zenchi" for e in entries):
+            entries = [e for e in entries
+                       if not (e.name == "前置報告書" and e.source == "doc_history")]
         # primary に「誤訳訂正書」が含まれない場合、fallback (補助ソース全書類) から
         # 誤訳訂正書のエントリのみ補完する (API/XML には誤訳訂正書が出ないため)。
         if not any(e.name == "誤訳訂正書" for e in entries):

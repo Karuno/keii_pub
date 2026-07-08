@@ -239,63 +239,133 @@ def onboard_appno(appno: str, inventory_dir: Path | str | None = None) -> dict:
         result["status"] = "error"
         result["error"] = f"{type(e).__name__}: {e}"
 
-    # 前置報告書の作成日 (補助ソース 経由)。失敗しても onboard 全体を落とさない。
-    # LIEVITO_OFFLINE_MODE=1 のときは補助ソースアクセスを完全にスキップする
-    # (進化ループの corpus 評価・FB 到達判定フェーズで使用。 補助ソース外部規約への
-    #  配慮および評価時のデータ不変性を保つため)。
+    result.update(ensure_aux_sources(appno, inv_dir))
+
+    result["elapsed_sec"] = round(time.time() - t0, 2)
+    return result
+
+
+# ============================================================================
+# 補助ソース (06 zenchi / 07 aux) の必要時取得
+# ============================================================================
+
+def _doc_history_codes(appno: str, inv_dir: Path) -> set[str]:
+    """doc_history_collected/{appno}.json に現れる documentCode の集合。"""
+    p = inv_dir / "doc_history_collected" / f"{appno}.json"
+    if not p.exists():
+        return set()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    codes: set[str] = set()
+    biblio = data.get("result", {}).get("data", {}).get("bibliographyInformation", []) or []
+    for b in biblio:
+        for d in b.get("documentList", []) or []:
+            code = d.get("documentCode", "")
+            if code:
+                codes.add(code)
+    return codes
+
+
+def _probe_incomplete(p: Path) -> bool:
+    """取得記録ファイルはあるが外部照会が完走していない (= 再試行対象) か。
+
+    06 (zenchi): found_keika False = 経過参照ページに到達できていない
+    07 (aux):    documents 空 + error あり = 例外中断の書き残し
+    """
+    try:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if "found_keika" in rec or "found_zenchi_link" in rec:
+        return not rec.get("found_keika")
+    return bool(rec.get("error")) and not rec.get("documents")
+
+
+def _run_aux_script(script_name: str, appno: str, timeout: int, force: bool) -> tuple[bool, str]:
+    import subprocess as _sp
+    import sys as _sys
+    keii_pub_root = Path(__file__).resolve().parent.parent
+    cmd = [_sys.executable, str(keii_pub_root / script_name), "--appno", appno]
+    if force:
+        cmd.append("--force")
+    proc = _sp.run(cmd, capture_output=True, text=True, timeout=timeout,
+                   cwd=str(keii_pub_root))
+    return proc.returncode == 0, (proc.stderr or "")[-300:]
+
+
+def ensure_aux_sources(appno: str, inventory_dir: Path | str | None = None) -> dict:
+    """補助ソース由来の日付データを、必要な案件に限り確保する。
+
+    - zenchi (06): doc_history に A913 (前置報告書) があるとき。
+      前置報告書の「作成日」は JPO API 本文配信対象外 (legalDate は発送日) のため。
+    - aux (07): doc_history に C13 (当審拒絶理由通知書) がある、または zenchi 記録に
+      found_errata_link が立っているとき。C13 の起案日も API では発送日しか取れない。
+
+    取得記録ファイルが既にあり照会が完走していれば外部アクセスしない。
+    未完走の書き残し (ブラウザ死亡・例外中断) は --force で再試行する。
+    失敗しても例外は上げず、結果 dict に記録して返す (呼び出し側の生成は続行)。
+    LIEVITO_OFFLINE_MODE=1 のときは外部アクセスを完全にスキップする
+    (進化ループの corpus 評価・FB 到達判定フェーズで使用。 補助ソース外部規約への
+     配慮および評価時のデータ不変性を保つため)。
+    """
     import os as _os
+    if inventory_dir is None:
+        inventory_dir = Path(__file__).resolve().parent.parent / "inventory"
+    inv_dir = Path(inventory_dir)
     _offline = _os.environ.get("LIEVITO_OFFLINE_MODE", "").strip() in ("1", "true", "True", "yes")
+    result: dict[str, Any] = {}
+
+    codes = _doc_history_codes(appno, inv_dir)
+
+    # 06: 前置報告書の作成日
     zenchi_p = inv_dir / "zenchi_drafting" / f"{appno}.json"
-    if zenchi_p.exists():
+    if "A913" not in codes:
+        result["zenchi_fetched"] = zenchi_p.exists()
+        result["zenchi_skipped"] = "A913 なし (前置報告書が存在しない案件)"
+    elif zenchi_p.exists() and not _probe_incomplete(zenchi_p):
         result["zenchi_fetched"] = True
     elif _offline:
         result["zenchi_fetched"] = False
         result["zenchi_skipped"] = "offline mode"
     else:
         try:
-            import subprocess as _sp
-            import sys as _sys
-            keii_pub_root = Path(__file__).resolve().parent.parent
-            proc = _sp.run(
-                [_sys.executable, str(keii_pub_root / "06_fetch_zenchi_drafting.py"),
-                 "--appno", appno],
-                capture_output=True, text=True, timeout=120,
-                cwd=str(keii_pub_root),
-            )
-            result["zenchi_fetched"] = (proc.returncode == 0 and zenchi_p.exists())
+            ok, err = _run_aux_script("06_fetch_zenchi_drafting.py", appno,
+                                      timeout=180, force=zenchi_p.exists())
+            result["zenchi_fetched"] = (ok and zenchi_p.exists())
+            if not ok and err:
+                result["zenchi_error"] = err
         except Exception as e:
             result["zenchi_fetched"] = False
             result["zenchi_error"] = f"{type(e).__name__}: {e}"
 
-    # 06 の結果で「誤訳訂正書あり」フラグが立っていれば、補助ソース全書類取得
-    # スクリプト (07) を呼び出して fallback 経路でも書類日付を確保しておく。
-    # dates.py の get_doc_dates_with_source が誤訳訂正書のみ補完に使う。
-    try:
-        if zenchi_p.exists():
-            import json as _json
-            zd = _json.loads(zenchi_p.read_text(encoding="utf-8"))
-            if zd.get("found_errata_link"):
-                aux_p = inv_dir / "aux_dates" / f"{appno}.json"
-                if aux_p.exists():
-                    result["aux_fetched"] = True
-                elif _offline:
-                    result["aux_fetched"] = False
-                    result["aux_skipped"] = "offline mode"
-                else:
-                    import subprocess as _sp
-                    import sys as _sys
-                    keii_pub_root = Path(__file__).resolve().parent.parent
-                    proc = _sp.run(
-                        [_sys.executable, str(keii_pub_root / "07_fetch_aux_fallback.py"),
-                         "--appno", appno],
-                        capture_output=True, text=True, timeout=180,
-                        cwd=str(keii_pub_root),
-                    )
-                    result["aux_fetched"] = (proc.returncode == 0 and aux_p.exists())
-    except Exception as e:
-        result["aux_error"] = f"{type(e).__name__}: {e}"
+    # 07: 全書類の起案日/受領日 (C13 起案日と誤訳訂正書の fallback に使用)
+    aux_needed = "C13" in codes
+    if not aux_needed and zenchi_p.exists():
+        try:
+            zd = json.loads(zenchi_p.read_text(encoding="utf-8"))
+            aux_needed = bool(zd.get("found_errata_link"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    if aux_needed:
+        aux_p = inv_dir / "aux_dates" / f"{appno}.json"
+        if aux_p.exists() and not _probe_incomplete(aux_p):
+            result["aux_fetched"] = True
+        elif _offline:
+            result["aux_fetched"] = False
+            result["aux_skipped"] = "offline mode"
+        else:
+            try:
+                ok, err = _run_aux_script("07_fetch_aux_fallback.py", appno,
+                                          timeout=240, force=aux_p.exists())
+                result["aux_fetched"] = (ok and aux_p.exists())
+                if not ok and err:
+                    result["aux_error"] = err
+            except Exception as e:
+                result["aux_fetched"] = False
+                result["aux_error"] = f"{type(e).__name__}: {e}"
 
-    result["elapsed_sec"] = round(time.time() - t0, 2)
     return result
 
 
