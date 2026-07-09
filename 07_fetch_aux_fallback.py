@@ -118,7 +118,10 @@ def extract_drafting_date(html: str) -> tuple[str | None, str]:
     """書類本文から『起案日』or『作成日』を抽出。"""
     m_anchor = re.search(r'<a\s+name="D_PAGE1"', html)
     search_text = html[m_anchor.end():] if m_anchor else html
-    m = DATE_PATTERN.search(search_text[:8000])
+    # 全文検索 (最初の 起案日/作成日 = 書類ヘッダの起案日)。
+    # 旧実装は先頭 8000 字のみ探し、CSS/シェルが前置される審判段階書類
+    # (当審拒絶理由通知書等) で起案日がウィンドウ外 (offset ~72000) になり取り逃していた。
+    m = DATE_PATTERN.search(search_text)
     if not m:
         return None, "no 起案日/作成日 pattern"
     iso = jp_date_to_iso(m.group(1), m.group(2), m.group(3), m.group(4))
@@ -250,6 +253,13 @@ def fetch_one(context: BrowserContext, page: Page, appno: str) -> dict:
                 time.sleep(SHORT_WAIT)
                 html = doc_page.content()
                 d_iso, d_label = extract_drafting_date(html)
+                # 診断: 起案日/作成日 抽出失敗時に本文を保存 (env AUX_DEBUG_SAVE_BODY=1)
+                import os as _os
+                if _os.environ.get("AUX_DEBUG_SAVE_BODY") and d_iso is None:
+                    _dbg = INV_DIR / "aux_debug"
+                    _dbg.mkdir(parents=True, exist_ok=True)
+                    _ri = matching[i].get("row_index", i) if i < len(matching) else i
+                    (_dbg / f"{appno}_row{_ri}.html").write_text(html, encoding="utf-8")
                 # 一致する書類エントリにセット
                 if i < len(matching):
                     matching[i]["drafting_date"] = d_iso
